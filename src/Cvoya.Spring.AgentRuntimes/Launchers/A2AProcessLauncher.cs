@@ -129,6 +129,13 @@ public class A2AProcessLauncher(
         // client can read it. No provider (or Ollama) → nothing to inject.
         await ResolveProviderCredentialAsync(context, envVars, cancellationToken);
 
+        // #3106: WorkingDirectory is intentionally left unset (null) so the
+        // engine image's own WORKDIR wins (CWD-independence for BYOI path 3 —
+        // e.g. a `WORKDIR /app` image running `python -m orchestrator`). This
+        // image-agnostic native-A2A runtime receives everything by env
+        // (SPRING_WORKSPACE_PATH / SPRING_MCP_URL / SPRING_MCP_TOKEN) and reads
+        // the system prompt by path, so it has no CWD-relative config to
+        // discover and must NOT be force-CWD'd to the workspace mount.
         return new AgentLaunchSpec(
             EnvironmentVariables: envVars,
             // Empty argv: defer to the engine image's own ENTRYPOINT/CMD. The

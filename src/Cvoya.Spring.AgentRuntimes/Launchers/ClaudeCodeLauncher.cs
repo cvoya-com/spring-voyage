@@ -255,12 +255,13 @@ public class ClaudeCodeLauncher(
     /// <para>
     /// <b>Why <c>--mcp-config</c> is passed explicitly:</b> Claude Code
     /// discovers project-scoped MCP servers from <c>.mcp.json</c> relative
-    /// to the CLI's working directory. The dispatcher now sets the
-    /// container's WORKDIR to the per-member workspace mount, but
-    /// pinning the path on argv makes the wiring robust against any
-    /// future CWD drift (and against runtimes that re-exec from a
-    /// different directory). Without this, the CLI starts with zero MCP
-    /// tools — the bug that motivated this flag.
+    /// to the CLI's working directory. This launcher pins the container's
+    /// WORKDIR to the per-member workspace mount via
+    /// <see cref="AgentLaunchSpec.WorkingDirectory"/> (#3106 — the dispatcher
+    /// is otherwise CWD-independent), but pinning the path on argv too makes
+    /// the wiring robust against any CWD drift (and against runtimes that
+    /// re-exec from a different directory). Without this, the CLI starts with
+    /// zero MCP tools — the bug that motivated this flag.
     /// </para>
     /// </remarks>
     internal static readonly string[] BaseClaudeArgv =
@@ -440,7 +441,14 @@ public class ClaudeCodeLauncher(
             // Empty argv: defer to the agent-base image's ENTRYPOINT (the
             // TypeScript bridge), which reads SPRING_AGENT_ARGV and spawns
             // the real CLI per message/send. BYOI conformance path 1.
-            Argv: Array.Empty<string>());
+            Argv: Array.Empty<string>(),
+            // #3106: pin CWD to the per-member workspace mount. The dispatcher
+            // is CWD-independent (a null WorkingDirectory lets the image's
+            // WORKDIR win), so a CLI launcher that discovers config relative to
+            // CWD must opt in explicitly. Claude Code reads `.mcp.json`, its
+            // `.claude/` session store, and the per-turn mcp-token from the
+            // workspace root, so CWD must be that mount.
+            WorkingDirectory: workspaceMountNoSlash);
     }
 
     /// <inheritdoc />

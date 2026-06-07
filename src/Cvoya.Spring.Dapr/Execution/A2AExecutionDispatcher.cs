@@ -341,14 +341,15 @@ public class A2AExecutionDispatcher(
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
-            // Default the container's working directory to the per-member
-            // workspace mount (the documented behaviour on
-            // AgentLaunchSpec.WorkingDirectory). The launcher's override
-            // wins when it sets one explicitly. CLI launchers that
-            // discover config files (e.g. Claude Code's `.mcp.json`)
-            // relative to CWD rely on this default.
-            WorkingDirectory = specWithConnectors.WorkingDirectory
-                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
+            // #3106: the dispatcher does NOT force a working directory — when
+            // the launcher leaves AgentLaunchSpec.WorkingDirectory null the
+            // image's own WORKDIR wins (CWD-independence for BYOI / native-A2A
+            // images). CLI launchers that discover config relative to CWD set
+            // WorkingDirectory to the workspace mount themselves, so this
+            // passthrough preserves their CWD=workspace behaviour. Per-thread /
+            // per-member scratch is addressed by path under
+            // SPRING_WORKSPACE_PATH, never by the whole-container CWD.
+            WorkingDirectory = specWithConnectors.WorkingDirectory,
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
@@ -1153,12 +1154,16 @@ public class A2AExecutionDispatcher(
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
-            // Default the container's working directory to the per-member
-            // workspace mount (the documented behaviour on
-            // AgentLaunchSpec.WorkingDirectory). The launcher's override
-            // wins when it sets one explicitly.
-            WorkingDirectory = specWithConnectors.WorkingDirectory
-                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
+            // #3106: cold-start of a persistent agent must honour the same
+            // CWD-independence contract as the deploy path — when the launcher
+            // leaves AgentLaunchSpec.WorkingDirectory null the image's own
+            // WORKDIR wins. This is the lazy BYOI / native-A2A path: an
+            // `a2a-process` engine (AgentHostingMode.Persistent) that is first
+            // dispatched here would otherwise be force-CWD'd to the workspace
+            // mount and fail to start its `WORKDIR /app`-relative command. CLI
+            // launchers set WorkingDirectory to the workspace mount themselves,
+            // so their CWD=workspace behaviour is preserved.
+            WorkingDirectory = specWithConnectors.WorkingDirectory,
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);

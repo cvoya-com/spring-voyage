@@ -227,6 +227,12 @@ public class SpringVoyageAgentLauncher(
         // by name via SPRING_LLM_COMPONENT.
         await ResolveProviderCredentialAsync(context, provider, envVars, cancellationToken);
 
+        // #3106: WorkingDirectory is intentionally left unset (null) so the
+        // image's own WORKDIR wins — `agent.py` is `WORKDIR /app`-relative.
+        // This native-A2A runtime gets everything by env (SPRING_WORKSPACE_PATH
+        // / SPRING_MCP_URL / SPRING_MCP_TOKEN) and the SDK pulls the system
+        // prompt, so it has no CWD-relative config to discover and must NOT be
+        // force-CWD'd to the workspace mount by the dispatcher.
         return new AgentLaunchSpec(
             EnvironmentVariables: envVars,
             // Non-empty argv: skip the agent-base bridge ENTRYPOINT and

@@ -211,17 +211,19 @@ public class PersistentAgentLifecycle(
         var prepWithVolume = prepWithBootstrap with
         {
             ExtraVolumeMounts = MergeVolumeMounts(prepWithBootstrap.ExtraVolumeMounts, volumeMount),
-            // Default the container's working directory to the per-member
-            // workspace mount (the documented behaviour on
-            // AgentLaunchSpec.WorkingDirectory: "When null, the dispatcher
-            // uses the per-member workspace mount path"). The launcher's
-            // override wins when it sets one explicitly. Aligning CWD with
-            // the mount is load-bearing for CLI launchers that discover
-            // their config files (e.g. Claude Code's `.mcp.json`) relative
-            // to CWD — otherwise the image's WORKDIR wins and the config
-            // is invisible.
-            WorkingDirectory = prepWithBootstrap.WorkingDirectory
-                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
+            // #3106: the dispatcher does NOT force a working directory. When
+            // the launcher leaves AgentLaunchSpec.WorkingDirectory null the
+            // image's own WORKDIR wins — the CWD-independence contract for
+            // BYOI / native-A2A images (e.g. a `WORKDIR /app` engine running
+            // `python -m orchestrator`). CWD is for finding *code*; per-thread
+            // and per-member scratch is addressed by *path* under
+            // SPRING_WORKSPACE_PATH (env-delivered), never by the whole-
+            // container CWD. The CLI launchers that discover config relative to
+            // CWD (Claude Code's `.mcp.json`, Gemini's `GEMINI.md`, Codex's
+            // `AGENTS.md`, the per-turn mcp-token) set WorkingDirectory
+            // themselves to the workspace mount, so this passthrough preserves
+            // their CWD=workspace behaviour without the platform imposing it.
+            WorkingDirectory = prepWithBootstrap.WorkingDirectory,
         };
 
         // We pass the (possibly overridden) image into the ContainerConfig so

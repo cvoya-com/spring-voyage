@@ -207,8 +207,16 @@ public record AgentLaunchContext(
 /// <see cref="AgentWorkspaceContract.BuildMountPath"/>).
 /// </param>
 /// <param name="WorkingDirectory">
-/// Optional working directory inside the container. When <c>null</c>, the
-/// dispatcher uses the per-member workspace mount path.
+/// Optional working directory inside the container. When <c>null</c> the
+/// dispatcher sets <b>no</b> <c>--workdir</c> and the image's own
+/// <c>WORKDIR</c> wins (#3106) — the CWD-independence contract for BYOI /
+/// native-A2A images (e.g. a <c>WORKDIR /app</c> engine). CWD is for finding
+/// <i>code</i>; per-thread / per-member scratch is addressed by <i>path</i>
+/// under <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/>, never by
+/// the whole-container CWD. A launcher that discovers config relative to CWD
+/// (the CLI launchers' <c>.mcp.json</c> / <c>GEMINI.md</c> / <c>AGENTS.md</c>
+/// / per-turn mcp-token) sets this explicitly to
+/// <see cref="AgentWorkspaceContract.BuildMountPathNoSlash"/>.
 /// </param>
 /// <param name="Argv">
 /// Optional argv vector the dispatcher should set as the container's

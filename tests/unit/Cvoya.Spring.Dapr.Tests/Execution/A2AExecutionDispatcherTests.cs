@@ -398,15 +398,39 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         // ADR-0055: ContainerConfig no longer carries Workspace/ContextWorkspace —
-        // the agent-sidecar pulls the bundle. Pin only the image and the
-        // dispatcher-defaulted WorkingDirectory (per-member workspace mount
-        // path), which the launcher's null WorkingDirectory invites it to
-        // supply (AgentLaunchSpec.WorkingDirectory docstring).
-        var expectedWorkingDirectory = AgentWorkspaceContract.BuildMountPathNoSlash(AgentId);
+        // the agent-sidecar pulls the bundle. #3106: the dispatcher is
+        // CWD-independent — when the launcher (here the DefaultSpec stub) leaves
+        // WorkingDirectory null, the dispatcher forwards null so the image's own
+        // WORKDIR wins; it does NOT force CWD to the workspace mount. Pin the
+        // image flows through verbatim and the null WorkingDirectory.
         await _containerRuntime.Received(1).StartAsync(
             Arg.Is<ContainerConfig>(c =>
                 c.Image == Image &&
-                c.WorkingDirectory == expectedWorkingDirectory),
+                c.WorkingDirectory == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_ForwardsLauncherWorkingDirectoryVerbatim()
+    {
+        // #3106: a launcher that discovers config relative to CWD (the CLI
+        // launchers) sets WorkingDirectory explicitly to the per-member
+        // workspace mount. The dispatcher must forward that verbatim — it
+        // neither overrides nor re-derives it — so CLI runtimes keep
+        // CWD=workspace and find `.mcp.json` / `GEMINI.md` / `AGENTS.md` / the
+        // per-turn mcp-token.
+        var workspaceMount = AgentWorkspaceContract.BuildMountPathNoSlash(AgentId);
+        _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
+            .Returns(DefaultSpec with { WorkingDirectory = workspaceMount });
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        await _containerRuntime.Received(1).StartAsync(
+            Arg.Is<ContainerConfig>(c => c.WorkingDirectory == workspaceMount),
             Arg.Any<CancellationToken>());
     }
 

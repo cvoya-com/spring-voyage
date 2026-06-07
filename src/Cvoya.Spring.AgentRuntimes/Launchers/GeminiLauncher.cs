@@ -311,7 +311,15 @@ public class GeminiLauncher(
             "Prepared Gemini launch spec for agent {AgentId} thread {ThreadId}",
             context.AgentId, context.ThreadId);
 
-        return new AgentLaunchSpec(EnvironmentVariables: envVars);
+        return new AgentLaunchSpec(
+            EnvironmentVariables: envVars,
+            // #3106: pin CWD to the per-member workspace mount. The dispatcher
+            // is CWD-independent (a null WorkingDirectory lets the image's
+            // WORKDIR win), so a CLI launcher that discovers config relative to
+            // CWD must opt in explicitly. The Gemini CLI auto-discovers
+            // `GEMINI.md` and `.gemini/settings.json`, and the per-turn
+            // mcp-token, from the workspace root — CWD must be that mount.
+            WorkingDirectory: workspaceMountNoSlash);
     }
 
     /// <inheritdoc />

@@ -85,8 +85,14 @@ public class ClaudeCodeLauncherTests
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
-        prep.WorkingDirectory.ShouldBeNull(
-            "leaving WorkingDirectory unset lets the dispatcher default to the per-member workspace mount");
+        // #3106: the dispatcher is CWD-independent (null WorkingDirectory ⇒
+        // image WORKDIR wins), so the Claude launcher pins CWD to the
+        // per-member workspace mount itself — `.mcp.json`, the `.claude/`
+        // session store, and the per-turn mcp-token are discovered relative
+        // to CWD.
+        prep.WorkingDirectory.ShouldBe(
+            AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId),
+            "the Claude CLI discovers .mcp.json / session state relative to CWD, so the launcher pins CWD to the workspace mount");
     }
 
     [Fact]
