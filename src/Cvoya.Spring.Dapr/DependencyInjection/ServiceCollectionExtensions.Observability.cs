@@ -61,6 +61,12 @@ internal static class ServiceCollectionExtensionsObservability
         // Costs — scoped query/tracking services always registered for endpoint DI.
         services.AddScoped<ICostQueryService, CostAggregation>();
         services.AddScoped<ICostTracker, CloneCostTracker>();
+        // Model price table for the native / SV Agent SDK cost path (#3075):
+        // sv.llm.turn spans carry tokens but no cost, so OtlpIngestService
+        // estimates cost from this catalogue. TryAdd so a cloud overlay can
+        // register a richer catalogue (live feed, negotiated rates) ahead of
+        // AddCvoyaSpringDapr without forking the OSS default table.
+        services.TryAddSingleton<IModelPriceCatalog, DefaultModelPriceCatalog>();
 
         // Observability — query services
         services.AddScoped<IActivityQueryService, ActivityQueryService>();

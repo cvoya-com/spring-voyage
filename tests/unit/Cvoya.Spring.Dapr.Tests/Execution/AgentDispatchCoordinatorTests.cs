@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
@@ -367,5 +368,153 @@ public class AgentDispatchCoordinatorTests
         var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
 
         emitted.ShouldNotContain(e => e.EventType == ActivityEventType.CostIncurred);
+    }
+
+    // ------------------------------------------------------------------
+    // #3075: clone cost roll-up + initiative classification
+    // ------------------------------------------------------------------
+
+    private static readonly Guid AgentGuid = TestSlugIds.For("dispatching-agent");
+    private static readonly Guid ParentGuid = TestSlugIds.For("parent-agent");
+
+    private static RuntimeOutcome OutcomeWithCost(decimal cost = 0.05m)
+        => new(
+            ExitCode: 0,
+            Duration: TimeSpan.FromMilliseconds(500),
+            ReasoningTrace: null,
+            Diagnostics: new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [RuntimeOutcome.ToolCallCountKey] = 1,
+                [RuntimeOutcome.CostUsdKey] = cost,
+                [RuntimeOutcome.InputTokensKey] = 100,
+                [RuntimeOutcome.OutputTokensKey] = 50,
+                [RuntimeOutcome.ModelKey] = "claude-opus-4-8",
+            });
+
+    private static async Task<List<ActivityEvent>> RunWithAttributionAsync(
+        IExecutionDispatcher dispatcher,
+        Message inbound,
+        string agentId,
+        string? costAttributionAgentId)
+    {
+        var emitted = new List<ActivityEvent>();
+        await MakeCoordinator(dispatcher).RunDispatchAsync(
+            agentId: agentId,
+            message: inbound,
+            context: null!,
+            emitActivity: (e, _) => { emitted.Add(e); return Task.CompletedTask; },
+            onDispatchExit: _ => Task.CompletedTask,
+            costAttributionAgentId: costAttributionAgentId);
+        return emitted;
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_CloneCost_BillsParentAndKeepsCloneIdInDetails()
+    {
+        // A clone's turn rolls its cost up to the parent: the CostIncurred
+        // event's Source is the parent (so CostRecord.AgentId is the parent),
+        // and the clone's own id is preserved in details.cloneAgentId.
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(OutcomeWithCost());
+
+        var cloneId = GuidFormatter.Format(AgentGuid);
+        var parentId = GuidFormatter.Format(ParentGuid);
+
+        var emitted = await RunWithAttributionAsync(dispatcher, inbound, cloneId, parentId);
+
+        var cost = emitted.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        cost.Source.Scheme.ShouldBe(Address.AgentScheme);
+        cost.Source.Id.ShouldBe(ParentGuid); // billed to the parent
+        cost.Details.ShouldNotBeNull();
+        cost.Details!.Value.GetProperty("cloneAgentId").GetString().ShouldBe(cloneId);
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_NonCloneCost_BillsDispatchingAgentAndNoCloneId()
+    {
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(OutcomeWithCost());
+
+        var agentId = GuidFormatter.Format(AgentGuid);
+
+        var emitted = await RunWithAttributionAsync(dispatcher, inbound, agentId, costAttributionAgentId: null);
+
+        var cost = emitted.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        cost.Source.Id.ShouldBe(AgentGuid); // billed to the dispatching agent
+        // cloneAgentId is null (serialised) for a non-clone turn.
+        cost.Details.ShouldNotBeNull();
+        var cloneProp = cost.Details!.Value.GetProperty("cloneAgentId");
+        cloneProp.ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_SelfAddressedInitiativeMessage_ClassifiesCostAsInitiative()
+    {
+        // A reflection message the agent routed back to itself (Initiative
+        // provenance, From == self) is the agent's own initiative turn.
+        var self = new Address(Address.AgentScheme, AgentGuid);
+        var inbound = new Message(
+            Guid.NewGuid(), self, self, MessageType.Domain,
+            Guid.NewGuid().ToString(),
+            JsonSerializer.SerializeToElement(new { Content = "reflecting" }),
+            DateTimeOffset.UtcNow,
+            Provenance: MessageProvenance.Initiative);
+
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(OutcomeWithCost());
+
+        var emitted = await RunWithAttributionAsync(
+            dispatcher, inbound, GuidFormatter.Format(AgentGuid), costAttributionAgentId: null);
+
+        var cost = emitted.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        cost.Details.ShouldNotBeNull();
+        cost.Details!.Value.GetProperty("costSource").GetString().ShouldBe("Initiative");
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_InitiativeMessageToDifferentAgent_StaysWork()
+    {
+        // A reflection message addressed to a DIFFERENT agent triggers normal
+        // work on the recipient (it is responding) — it must not be billed as
+        // the recipient's initiative cost.
+        var initiator = new Address(Address.AgentScheme, ParentGuid);
+        var recipient = new Address(Address.AgentScheme, AgentGuid);
+        var inbound = new Message(
+            Guid.NewGuid(), initiator, recipient, MessageType.Domain,
+            Guid.NewGuid().ToString(),
+            JsonSerializer.SerializeToElement(new { Content = "please help" }),
+            DateTimeOffset.UtcNow,
+            Provenance: MessageProvenance.Initiative);
+
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(OutcomeWithCost());
+
+        // The recipient (AgentGuid) is dispatching.
+        var emitted = await RunWithAttributionAsync(
+            dispatcher, inbound, GuidFormatter.Format(AgentGuid), costAttributionAgentId: null);
+
+        var cost = emitted.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        cost.Details!.Value.GetProperty("costSource").GetString().ShouldBe("Work");
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_DirectMessage_ClassifiesCostAsWork()
+    {
+        var inbound = MakeAgentMessage(); // default provenance = Direct
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(OutcomeWithCost());
+
+        var emitted = await RunWithAttributionAsync(
+            dispatcher, inbound, GuidFormatter.Format(AgentGuid), costAttributionAgentId: null);
+
+        var cost = emitted.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        cost.Details!.Value.GetProperty("costSource").GetString().ShouldBe("Work");
     }
 }

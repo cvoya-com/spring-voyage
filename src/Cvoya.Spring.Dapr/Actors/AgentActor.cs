@@ -782,15 +782,36 @@ public class AgentActor(
         var head = batch[0];
         var deliveredBatch = batch.Count > 1 ? batch : null;
 
+        // #3075: an ephemeral clone bills its turn's cost up to the parent
+        // agent so the parent's cost rollup includes clone spend (the intent
+        // the now-removed AgentActor.GetCostAttributionTargetAsync encoded).
+        // Non-clone agents resolve null and bill themselves.
+        var costAttributionAgentId = await GetCostAttributionAgentIdAsync(ct);
+
         if (runtimeInvocationPath is not null)
         {
             await runtimeInvocationPath.InvokeAsync(
-                Address, head, context, EmitActivityEventAsync, onDispatchExit, ct, deliveredBatch);
+                Address, head, context, EmitActivityEventAsync, onDispatchExit, ct, deliveredBatch,
+                costAttributionAgentId);
             return;
         }
 
         await dispatchCoordinator.RunDispatchAsync(
-            Id.GetId(), head, context, EmitActivityEventAsync, onDispatchExit, ct, deliveredBatch);
+            Id.GetId(), head, context, EmitActivityEventAsync, onDispatchExit, ct, deliveredBatch,
+            costAttributionAgentId);
+    }
+
+    /// <summary>
+    /// Resolves the agent id a dispatched turn's cost should bill against
+    /// (#3075). Returns the parent agent id when this actor is an ephemeral
+    /// clone — so clone spend rolls up to the parent — and <c>null</c>
+    /// otherwise (the agent bills itself). Reads the clone identity from actor
+    /// state, the same source the workflow seeds at clone creation.
+    /// </summary>
+    private async Task<string?> GetCostAttributionAgentIdAsync(CancellationToken cancellationToken)
+    {
+        var identity = await GetCloneIdentityAsync(cancellationToken);
+        return identity?.ParentAgentId;
     }
 
     private async Task SignalDispatchExitViaSelfAsync(string threadId, string reason)
@@ -1147,15 +1168,6 @@ public class AgentActor(
     }
 
     /// <summary>
-    /// Gets the parent agent ID if this agent is a clone, used for cost attribution.
-    /// </summary>
-    internal async Task<string?> GetCostAttributionTargetAsync(CancellationToken cancellationToken = default)
-    {
-        var identity = await GetCloneIdentityAsync(cancellationToken);
-        return identity?.ParentAgentId;
-    }
-
-    /// <summary>
     /// Emits a pre-built <see cref="ActivityEvent"/> through the activity event bus.
     /// </summary>
     private async Task EmitActivityEventAsync(ActivityEvent activityEvent, CancellationToken cancellationToken)
@@ -1261,35 +1273,6 @@ public class AgentActor(
             domains,
             EmitActivityEventAsync,
             cancellationToken);
-    }
-
-    /// <summary>
-    /// Emits a <see cref="ActivityEventType.CostIncurred"/> event for this agent's execution costs.
-    /// </summary>
-    internal async Task EmitCostIncurredAsync(
-        decimal cost,
-        string model,
-        int inputTokens,
-        int outputTokens,
-        Core.Costs.CostSource source,
-        CancellationToken cancellationToken = default)
-    {
-        var costAttributionTarget = await GetCostAttributionTargetAsync(cancellationToken);
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            model,
-            inputTokens,
-            outputTokens,
-            parentAgentId = costAttributionTarget,
-            costSource = source.ToString(),
-        });
-
-        await EmitActivityEventAsync(
-            ActivityEventType.CostIncurred,
-            $"Cost incurred: {cost:C} ({model}, {inputTokens} in / {outputTokens} out)",
-            cancellationToken,
-            details: details,
-            cost: cost);
     }
 
     /// <summary>

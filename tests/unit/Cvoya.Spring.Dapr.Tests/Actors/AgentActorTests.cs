@@ -449,30 +449,6 @@ public class AgentActorTests
         result.AttachmentMode.ShouldBe(AttachmentMode.Attached);
     }
 
-    [Fact]
-    public async Task GetCostAttributionTargetAsync_IsClone_ReturnsParentId()
-    {
-        var identity = new CloneIdentity("parent-agent", "test-agent",
-            CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
-        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<CloneIdentity>(true, identity));
-
-        var result = await _actor.GetCostAttributionTargetAsync(TestContext.Current.CancellationToken);
-
-        result.ShouldBe("parent-agent");
-    }
-
-    [Fact]
-    public async Task GetCostAttributionTargetAsync_NotClone_ReturnsNull()
-    {
-        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<CloneIdentity>(false, default!));
-
-        var result = await _actor.GetCostAttributionTargetAsync(TestContext.Current.CancellationToken);
-
-        result.ShouldBeNull();
-    }
-
     // --- Activity event emission ---
 
     [Fact]
@@ -597,51 +573,6 @@ public class AgentActorTests
             Arg.Is<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ThreadStarted &&
                 e.CorrelationId == "conv-started"),
-            Arg.Any<CancellationToken>());
-    }
-
-    // --- Cost-incurred ---
-
-    [Fact]
-    public async Task EmitCostIncurredAsync_EmitsCostEvent()
-    {
-        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<CloneIdentity>(false, default!));
-
-        await _actor.EmitCostIncurredAsync(
-            0.05m, "gpt-4", 1000, 500,
-            Cvoya.Spring.Core.Costs.CostSource.Work,
-            TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.CostIncurred &&
-                e.Cost == 0.05m &&
-                e.Details.HasValue &&
-                e.Details.Value.GetProperty("costSource").GetString() == "Work"),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task EmitCostIncurredAsync_Clone_IncludesParentAgentInDetails()
-    {
-        var identity = new CloneIdentity("parent-agent", "test-agent",
-            CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
-        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<CloneIdentity>(true, identity));
-
-        await _actor.EmitCostIncurredAsync(
-            0.10m, "claude-3", 2000, 1000,
-            Cvoya.Spring.Core.Costs.CostSource.Initiative,
-            TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.CostIncurred &&
-                e.Cost == 0.10m &&
-                e.Details.HasValue &&
-                e.Details.Value.GetProperty("parentAgentId").GetString() == "parent-agent" &&
-                e.Details.Value.GetProperty("costSource").GetString() == "Initiative"),
             Arg.Any<CancellationToken>());
     }
 

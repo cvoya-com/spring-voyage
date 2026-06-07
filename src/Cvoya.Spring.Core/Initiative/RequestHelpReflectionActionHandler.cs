@@ -74,7 +74,10 @@ public class RequestHelpReflectionActionHandler : IReflectionActionHandler
             MessageType.Domain,
             threadId,
             bodyPayload,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            // #3075: tag the reflection-produced message so a self-addressed
+            // initiative action's turn bills as Initiative cost.
+            Provenance: MessageProvenance.Initiative);
 
         return Task.FromResult<Message?>(message);
     }
