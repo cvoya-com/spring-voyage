@@ -8,22 +8,24 @@ using System.Threading;
 using System.Threading.Tasks;
 
 /// <summary>
-/// Exports an installed package back to its original YAML manifest
-/// (ADR-0035 decisions 9 and 12).
+/// Exports an installed package as a re-installable <c>package.yaml</c> tree.
 ///
 /// <para>
-/// <b>Round-trip fidelity:</b> the service reads <c>OriginalManifestYaml</c>
-/// verbatim from the <c>package_installs</c> row, so comments, key ordering,
-/// and all formatting choices made by the operator are preserved.
-/// YamlDotNet is never used to re-render the full document.
+/// <b>Runtime/DB config is the single source of truth (#3090; supersedes
+/// ADR-0035 decision 12).</b> The service <i>reconstructs</i> the package from
+/// the live relational stores — definitions, live-config / execution,
+/// memberships, expertise, policies, and connector bindings — so every
+/// post-deploy edit is reflected. It does not replay the captured
+/// <c>original_manifest_yaml</c> blob (that is install-replay provenance only).
+/// Comment / key-order fidelity from the original authoring is deliberately
+/// traded for export correctness after edits.
 /// </para>
 ///
 /// <para>
-/// <b><c>withValues</c>:</b> when <see langword="true"/> the service splices an
-/// <c>inputs:</c> block derived from <c>InputBindings</c> into the returned YAML.
-/// Secret-typed inputs are emitted as placeholder references
-/// (<c>${{ secrets.&lt;name&gt; }}</c>) rather than cleartext values
-/// (ADR-0035 decision 9).
+/// <b><c>withValues</c>:</b> reserved for materialising an <c>inputs:</c> block
+/// in a future revision. Reconstruction always emits connector requirements as
+/// <c>requires:</c> placeholders and never exports connector config or bound
+/// secrets, so no cleartext credential can leak regardless of the flag.
 /// </para>
 /// </summary>
 public interface IPackageExportService
