@@ -26,7 +26,8 @@ internal class AgentLiveConfigEntityConfiguration : IEntityTypeConfiguration<Age
 
         builder.Property(e => e.AgentId).HasColumnName("agent_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
-        builder.Property(e => e.Model).HasColumnName("model").HasMaxLength(256);
+        // ADR-0067 §2 (#3111): the agent's model single home is the jsonb
+        // execution block — agent_live_config.model is dropped.
         builder.Property(e => e.Specialty).HasColumnName("specialty").HasMaxLength(256);
         builder.Property(e => e.Enabled).HasColumnName("enabled").IsRequired().HasDefaultValue(true);
         builder.Property(e => e.ExecutionMode)

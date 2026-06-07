@@ -4848,7 +4848,6 @@ export interface components {
             displayName?: null | string;
             description?: null | string;
             role?: null | string;
-            model?: null | string;
             specialty?: null | string;
             enabled?: null | boolean;
             executionMode?: null | components["schemas"]["AgentExecutionMode"];

@@ -37,8 +37,12 @@ public class DbAgentDefinitionProviderTests
     [Fact]
     public async Task GetByIdAsync_UnitDefinitionWithExecution_ProjectsUnitRuntime()
     {
+        // ADR-0067 §2 (#3111): the unit's model + hosting single home is
+        // unit_live_config. The jsonb carries only runtime / image; the
+        // dispatch projection reads model + hosting from the live store via
+        // the wired IUnitStateCoordinator (the production path).
         var unitId = Guid.NewGuid();
-        using var services = BuildProvider(db =>
+        using var services = BuildProviderWithStateCoordinator(db =>
         {
             db.UnitDefinitions.Add(new UnitDefinitionEntity
             {
@@ -52,14 +56,20 @@ public class DbAgentDefinitionProviderTests
                     {
                         runtime = "spring-voyage",
                         image = "ghcr.io/cvoya/unit-runtime:latest",
-                        hosting = "persistent",
-                        model = new { provider = "ollama", id = "llama3.2:3b" },
                     },
                 }),
             });
+            db.UnitLiveConfigs.Add(new UnitLiveConfigEntity
+            {
+                UnitId = unitId,
+                TenantId = OssTenantIds.Default,
+                Hosting = "persistent",
+                Provider = "ollama",
+                Model = "llama3.2:3b",
+            });
         });
 
-        var sut = CreateProvider(services);
+        var sut = CreateProviderWithStateCoordinator(services);
 
         var definition = await sut.GetByIdAsync(
             unitId.ToString("N"),
@@ -74,6 +84,44 @@ public class DbAgentDefinitionProviderTests
         definition.Execution.Image.ShouldBe("ghcr.io/cvoya/unit-runtime:latest");
         definition.Execution.Hosting.ShouldBe(AgentHostingMode.Persistent);
         definition.Execution.Model.ShouldBe(new Cvoya.Spring.Core.Catalog.Model("ollama", "llama3.2:3b"));
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_UnitDefinition_DefaultsHostingPersistent_WhenLiveConfigUnset()
+    {
+        // ADR-0067 §2: with no model/hosting on unit_live_config the projection
+        // defaults hosting to Persistent and leaves model null — the jsonb no
+        // longer carries either (the keys are stripped by the migration).
+        var unitId = Guid.NewGuid();
+        using var services = BuildProviderWithStateCoordinator(db =>
+        {
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = unitId,
+                TenantId = OssTenantIds.Default,
+                DisplayName = "Runtime Unit",
+                Definition = JsonSerializer.SerializeToElement(new
+                {
+                    execution = new
+                    {
+                        runtime = "spring-voyage",
+                        image = "ghcr.io/cvoya/unit-runtime:latest",
+                    },
+                }),
+            });
+        });
+
+        var sut = CreateProviderWithStateCoordinator(services);
+
+        var definition = await sut.GetByIdAsync(
+            unitId.ToString("N"),
+            TestContext.Current.CancellationToken);
+
+        definition.ShouldNotBeNull();
+        definition!.Execution.ShouldNotBeNull();
+        definition.Execution!.Runtime.ShouldBe("spring-voyage");
+        definition.Execution.Hosting.ShouldBe(AgentHostingMode.Persistent);
+        definition.Execution.Model.ShouldBeNull();
     }
 
     [Fact]
@@ -541,4 +589,38 @@ public class DbAgentDefinitionProviderTests
         => new(
             provider.GetRequiredService<IServiceScopeFactory>(),
             NullLoggerFactory.Instance);
+
+    /// <summary>
+    /// Variant that also registers the unit live-config read seam
+    /// (<see cref="IUnitStateCoordinator"/> backed by the EF
+    /// <see cref="IUnitLiveConfigRepository"/>) so the unit-as-agent
+    /// projection resolves <c>model</c> + <c>hosting</c> from their
+    /// single home, <c>unit_live_config</c> (ADR-0067 §2 / #3111) — the
+    /// production dispatch path.
+    /// </summary>
+    private static ServiceProvider BuildProviderWithStateCoordinator(Action<SpringDbContext> seed)
+    {
+        var dbName = $"agent-definition-provider-{Guid.NewGuid():N}";
+        var services = new ServiceCollection();
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
+        services.AddScoped<IUnitLiveConfigRepository, UnitLiveConfigRepository>();
+        services.AddSingleton<Cvoya.Spring.Dapr.Units.IUnitLiveConfigStore, Cvoya.Spring.Dapr.Units.UnitLiveConfigStore>();
+        services.AddSingleton<Cvoya.Spring.Core.Units.IUnitStateCoordinator, Cvoya.Spring.Dapr.Units.UnitStateCoordinator>();
+        services.AddLogging();
+
+        var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        seed(db);
+        db.SaveChanges();
+        return provider;
+    }
+
+    private static DbAgentDefinitionProvider CreateProviderWithStateCoordinator(ServiceProvider provider)
+        => new(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLoggerFactory.Instance,
+            unitStateCoordinator: provider.GetRequiredService<Cvoya.Spring.Core.Units.IUnitStateCoordinator>());
 }

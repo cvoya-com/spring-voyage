@@ -104,7 +104,15 @@ public class ArtefactValidationWorkflowScheduler(
                         throw NotFoundException(kind, artefactActorId);
                     }
 
-                    var defaults = DbUnitExecutionStore.Extract(entity.Definition);
+                    // ADR-0067 §2 (#3111): the unit's model lives on
+                    // unit_live_config, not the jsonb. IUnitExecutionStore.GetAsync
+                    // combines the jsonb slots (image / runtime) with the
+                    // live-config model into the one UnitExecutionDefaults shape,
+                    // so the validation probe resolves the credential against the
+                    // model's single home.
+                    var unitExecutionStore = scope.ServiceProvider
+                        .GetRequiredService<IUnitExecutionStore>();
+                    var defaults = await unitExecutionStore.GetAsync(artefactActorId, cancellationToken);
                     if (defaults is null)
                     {
                         throw NoDefaultsException();

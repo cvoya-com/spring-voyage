@@ -635,7 +635,10 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var patch = new UpdateAgentMetadataRequest(Model: "gpt-4");
+        // ADR-0067 §2 (#3111): the metadata PATCH no longer carries Model
+        // (the model's single home is the execution block). Any patch body
+        // exercises the not-found path.
+        var patch = new UpdateAgentMetadataRequest(Specialty: "reviewer");
         using var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/tenant/agents/{Guid.NewGuid():N}")
         {
             Content = JsonContent.Create(patch, options: JsonOptions),

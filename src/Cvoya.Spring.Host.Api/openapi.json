@@ -18093,12 +18093,6 @@
               "string"
             ]
           },
-          "model": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "specialty": {
             "type": [
               "null",

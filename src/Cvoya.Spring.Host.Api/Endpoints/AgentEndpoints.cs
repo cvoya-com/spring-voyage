@@ -1476,9 +1476,12 @@ public static class AgentEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(AgentActor));
 
+        // ADR-0067 §2 (#3111): Model is not a metadata field — its single
+        // home is the agent's execution block (PUT /agents/{id}/execution),
+        // which the dispatcher reads. The metadata PATCH carries only
+        // specialty / enabled / execution-mode on the live-config row.
         await proxy.SetMetadataAsync(
             new AgentMetadata(
-                Model: request.Model,
                 Specialty: request.Specialty,
                 Enabled: request.Enabled,
                 ExecutionMode: request.ExecutionMode,

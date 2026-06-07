@@ -11,8 +11,17 @@ using Cvoya.Spring.Core.Tenancy;
 /// Persists one row of operator-editable runtime config for a single agent.
 /// 1:1 with <see cref="AgentDefinitionEntity"/>: the row is keyed by the
 /// agent's stable Guid and holds the live mutable values that used to be
-/// kept in actor state under <c>Agent:Model</c>, <c>Agent:Specialty</c>,
-/// <c>Agent:Enabled</c>, and <c>Agent:ExecutionMode</c>.
+/// kept in actor state under <c>Agent:Specialty</c>, <c>Agent:Enabled</c>,
+/// and <c>Agent:ExecutionMode</c>.
+///
+/// <para>
+/// ADR-0067 §2 (#3111): <c>model</c> is no longer a column here. An agent's
+/// model has a single writable home — the agent jsonb
+/// <c>execution.model{provider,id}</c> (the dispatch source);
+/// <see cref="AgentMetadata.Model"/> projects from that jsonb. The former
+/// <c>agent_live_config.model</c> column (a flat, provider-less id the
+/// dispatcher never read) is dropped.
+/// </para>
 ///
 /// <para>
 /// Implements ADR-0040 / #2048 for the agent live-config slice. EF is the
@@ -43,12 +52,6 @@ public class AgentLiveConfigEntity : ITenantScopedEntity
 
     /// <inheritdoc />
     public Guid TenantId { get; set; }
-
-    /// <summary>
-    /// Preferred LLM model identifier for the agent, or <c>null</c> when
-    /// the operator has not pinned one and inheritance / defaults apply.
-    /// </summary>
-    public string? Model { get; set; }
 
     /// <summary>
     /// Free-form specialty label (e.g. <c>reviewer</c>,

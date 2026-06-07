@@ -3,9 +3,12 @@
 
 namespace Cvoya.Spring.Dapr.Data;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +23,16 @@ using Microsoft.EntityFrameworkCore;
 /// this repository no longer touches them after the #2360 cleanup
 /// dropped the legacy operator-skills write path.
 /// </summary>
+/// <remarks>
+/// ADR-0067 §2 (#3111): an agent's <c>model</c> has a single writable home —
+/// the agent jsonb <c>execution.model{provider,id}</c> (the dispatch source).
+/// <see cref="AgentMetadata.Model"/> is therefore <b>projected</b> from that
+/// jsonb (surfacing the model <c>id</c>) on read and is never written to
+/// <c>agent_live_config</c>; the structured-model write surface is
+/// <c>PUT /agents/{id}/execution</c> (<see cref="IAgentExecutionStore"/>).
+/// <c>agent_live_config</c> owns only specialty / enabled / execution-mode /
+/// expertise / lifecycle-status.
+/// </remarks>
 public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConfigRepository
 {
     /// <inheritdoc />
@@ -29,16 +42,22 @@ public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConf
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.AgentId == agentId, cancellationToken);
 
+        // ADR-0067 §2: Model projects from the agent jsonb execution block
+        // (the single home + dispatch source), not from agent_live_config.
+        var model = await ReadJsonbModelIdAsync(agentId, cancellationToken);
+
         if (row is null)
         {
-            // No row yet — every field is unset. Returning all-null lets
-            // the API layer apply its own defaults (Enabled defaulting
-            // to true, etc.) without the repository taking a position.
-            return new AgentMetadata();
+            // No live-config row yet — every live-config field is unset.
+            // Model still comes from the jsonb (which may carry one even
+            // when the live-config row was never materialised). Returning
+            // unset live-config fields lets the API layer apply its own
+            // defaults (Enabled defaulting to true, etc.).
+            return new AgentMetadata(Model: model);
         }
 
         return new AgentMetadata(
-            Model: row.Model,
+            Model: model,
             Specialty: row.Specialty,
             Enabled: row.Enabled,
             ExecutionMode: row.ExecutionMode,
@@ -53,17 +72,19 @@ public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConf
 
         // Identify which fields are actually being patched first so we
         // can both decide whether to write and emit an accurate field
-        // list on the activity event.
+        // list on the activity event. ADR-0067 §2: Model is NOT a
+        // live-config field — its single home is the agent jsonb (set via
+        // the execution PUT), so a Model on this metadata is ignored here.
         var written = new List<string>();
-        if (metadata.Model is not null) written.Add(nameof(metadata.Model));
         if (metadata.Specialty is not null) written.Add(nameof(metadata.Specialty));
         if (metadata.Enabled is not null) written.Add(nameof(metadata.Enabled));
         if (metadata.ExecutionMode is not null) written.Add(nameof(metadata.ExecutionMode));
 
         if (written.Count == 0)
         {
-            // No-op patch (every field null and ParentUnit is ignored —
-            // membership owns it). Don't materialise a row.
+            // No-op patch (every live-config field null; Model and
+            // ParentUnit are ignored — the jsonb / membership own them).
+            // Don't materialise a row.
             return Array.Empty<string>();
         }
 
@@ -76,13 +97,38 @@ public class AgentLiveConfigRepository(SpringDbContext context) : IAgentLiveConf
             context.AgentLiveConfigs.Add(row);
         }
 
-        if (metadata.Model is not null) row.Model = metadata.Model;
         if (metadata.Specialty is not null) row.Specialty = metadata.Specialty;
         if (metadata.Enabled is not null) row.Enabled = metadata.Enabled.Value;
         if (metadata.ExecutionMode is not null) row.ExecutionMode = metadata.ExecutionMode.Value;
 
         await context.SaveChangesAsync(cancellationToken);
         return written;
+    }
+
+    /// <summary>
+    /// Reads the agent's persisted <c>execution.model.id</c> from the agent
+    /// jsonb (ADR-0067 §2). Returns <c>null</c> when the agent has no row,
+    /// no execution block, or no structured model. The flat <c>id</c> is the
+    /// value that flows to <see cref="AgentMetadata.Model"/> — matching the
+    /// model-policy <c>evaluateModel</c> + effective-metadata contract that
+    /// previously read the (id-shaped) <c>agent_live_config.model</c>.
+    /// </summary>
+    private async Task<string?> ReadJsonbModelIdAsync(Guid agentId, CancellationToken cancellationToken)
+    {
+        var definition = await context.AgentDefinitions
+            .AsNoTracking()
+            .Where(a => a.Id == agentId && a.DeletedAt == null)
+            .Select(a => a.Definition)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (definition is not { ValueKind: JsonValueKind.Object } element
+            || !element.TryGetProperty("execution", out var exec)
+            || exec.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return ExecutionJson.ReadModel(exec)?.Id;
     }
 
     /// <inheritdoc />

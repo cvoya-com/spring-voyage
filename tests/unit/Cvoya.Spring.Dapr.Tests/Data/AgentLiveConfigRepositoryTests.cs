@@ -3,9 +3,14 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Data;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Dapr.Tenancy;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +26,13 @@ using Xunit;
 /// rely on: partial PATCH semantics, replace-in-full skill / expertise
 /// writes, and the cross-restart "is expertise initialised?" flag.
 /// </summary>
+/// <remarks>
+/// ADR-0067 §2 (#3111): <see cref="AgentMetadata.Model"/> is projected from
+/// the agent jsonb <c>execution.model.id</c> (the single home + dispatch
+/// source), never from <c>agent_live_config</c>. These tests therefore seed
+/// the model on the <c>AgentDefinitions</c> row and assert the projection;
+/// the upsert path no longer writes Model.
+/// </remarks>
 public class AgentLiveConfigRepositoryTests : IDisposable
 {
     private static readonly Guid Agent1 = new("aaaaaaaa-0000-0000-0000-000000000001");
@@ -35,8 +47,32 @@ public class AgentLiveConfigRepositoryTests : IDisposable
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
 
-        _context = new SpringDbContext(options);
+        _context = new SpringDbContext(options, new StaticTenantContext(OssTenantIds.Default));
         _repository = new AgentLiveConfigRepository(_context);
+    }
+
+    /// <summary>
+    /// Seeds an <c>AgentDefinitions</c> row whose jsonb carries
+    /// <c>execution.model{provider, id}</c> so the repository's model
+    /// projection (ADR-0067 §2) has a value to surface.
+    /// </summary>
+    private void SeedAgentModel(SpringDbContext db, Guid agentId, string provider, string id)
+    {
+        db.AgentDefinitions.Add(new AgentDefinitionEntity
+        {
+            Id = agentId,
+            TenantId = OssTenantIds.Default,
+            DisplayName = "agent",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new
+                {
+                    runtime = "claude-code",
+                    model = new { provider, id },
+                },
+            }),
+        });
+        db.SaveChanges();
     }
 
     [Fact]
@@ -54,20 +90,39 @@ public class AgentLiveConfigRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task UpsertMetadataAsync_AllFields_PersistsAndRoundTrips()
+    public async Task GetMetadataAsync_ModelProjectsFromJsonbExecutionBlock()
     {
+        // ADR-0067 §2 (#3111): Model's single home is the agent jsonb. With no
+        // live-config row at all, the model still surfaces from the definition.
         var ct = TestContext.Current.CancellationToken;
+        SeedAgentModel(_context, Agent1, "anthropic", "claude-opus-4-8");
+
+        var fetched = await _repository.GetMetadataAsync(Agent1, ct);
+
+        fetched.Model.ShouldBe("claude-opus-4-8");
+    }
+
+    [Fact]
+    public async Task UpsertMetadataAsync_AllLiveConfigFields_PersistsAndRoundTrips()
+    {
+        // ADR-0067 §2: the upsert writes only the live-config fields; Model is
+        // ignored here (its home is the jsonb / execution PUT). The model
+        // surfaces from the seeded definition row, independent of the upsert.
+        var ct = TestContext.Current.CancellationToken;
+        SeedAgentModel(_context, Agent1, "anthropic", "claude-opus");
 
         var written = await _repository.UpsertMetadataAsync(
             Agent1,
             new AgentMetadata(
-                Model: "claude-opus",
+                Model: "ignored-flat-model",
                 Specialty: "reviewer",
                 Enabled: false,
                 ExecutionMode: AgentExecutionMode.OnDemand),
             ct);
 
-        written.Count.ShouldBe(4);
+        // Model is not a live-config field — three fields written.
+        written.Count.ShouldBe(3);
+        written.ShouldNotContain("Model");
 
         var fetched = await _repository.GetMetadataAsync(Agent1, ct);
         fetched.Model.ShouldBe("claude-opus");
@@ -80,10 +135,11 @@ public class AgentLiveConfigRepositoryTests : IDisposable
     public async Task UpsertMetadataAsync_PartialPatch_LeavesUnsetFieldsAlone()
     {
         var ct = TestContext.Current.CancellationToken;
+        SeedAgentModel(_context, Agent1, "openai", "gpt-4o");
 
         await _repository.UpsertMetadataAsync(
             Agent1,
-            new AgentMetadata(Model: "gpt-4o", Specialty: "reviewer", Enabled: true),
+            new AgentMetadata(Specialty: "reviewer", Enabled: true),
             ct);
 
         var written = await _repository.UpsertMetadataAsync(
@@ -95,6 +151,7 @@ public class AgentLiveConfigRepositoryTests : IDisposable
         written.ShouldContain("Specialty");
 
         var fetched = await _repository.GetMetadataAsync(Agent1, ct);
+        // Model still comes from the jsonb (untouched by the patches).
         fetched.Model.ShouldBe("gpt-4o");
         fetched.Specialty.ShouldBe("implementer");
         fetched.Enabled.ShouldBe(true);
@@ -196,13 +253,14 @@ public class AgentLiveConfigRepositoryTests : IDisposable
             .UseInMemoryDatabase(databaseName: dbName)
             .Options;
 
-        await using (var write = new SpringDbContext(options))
+        await using (var write = new SpringDbContext(options, new StaticTenantContext(OssTenantIds.Default)))
         {
+            // ADR-0067 §2: the model's home is the jsonb — seed it there.
+            SeedAgentModel(write, Agent1, "anthropic", "claude-opus");
             var writer = new AgentLiveConfigRepository(write);
             await writer.UpsertMetadataAsync(
                 Agent1,
                 new AgentMetadata(
-                    Model: "claude-opus",
                     Enabled: true,
                     ExecutionMode: AgentExecutionMode.OnDemand),
                 ct);
@@ -212,10 +270,11 @@ public class AgentLiveConfigRepositoryTests : IDisposable
             }, ct);
         }
 
-        await using (var read = new SpringDbContext(options))
+        await using (var read = new SpringDbContext(options, new StaticTenantContext(OssTenantIds.Default)))
         {
             var reader = new AgentLiveConfigRepository(read);
             var metadata = await reader.GetMetadataAsync(Agent1, ct);
+            // Model survives via the jsonb single home; the rest via live-config.
             metadata.Model.ShouldBe("claude-opus");
             metadata.Enabled.ShouldBe(true);
             metadata.ExecutionMode.ShouldBe(AgentExecutionMode.OnDemand);

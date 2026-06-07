@@ -4,6 +4,7 @@ using System.Text.Json;
 using Cvoya.Spring.Dapr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cvoya.Spring.Dapr.Data.Migrations
 {
     [DbContext(typeof(SpringDbContext))]
-    partial class SpringDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260607084655_BackfillModelHostingSingleHome")]
+    partial class BackfillModelHostingSingleHome
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -295,6 +298,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("lifecycle_status");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("model");
 
                     b.Property<string>("Specialty")
                         .HasMaxLength(256)

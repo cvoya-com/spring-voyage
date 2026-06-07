@@ -3,8 +3,10 @@
 // Agent Config → General sub-tab (#2331). First tab in the Config strip;
 // every directory- and actor-owned metadata field that previously could
 // only be set at create time or via the CLI (displayName, description,
-// role, model hint, specialty, enabled, executionMode) plus the existing
-// expertise editor folded in.
+// role, specialty, enabled, executionMode) plus the existing expertise
+// editor folded in. The agent's model is configured via the execution
+// config surface (PUT /agents/{id}/execution), not here — the flat model
+// hint was dropped from the metadata contract (ADR-0067 R2, #3111).
 
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -35,7 +37,6 @@ interface DraftFields {
   displayName: string;
   description: string;
   role: string;
-  model: string;
   specialty: string;
   enabled: boolean;
   executionMode: AgentExecutionMode;
@@ -45,7 +46,6 @@ const EMPTY_DRAFT: DraftFields = {
   displayName: "",
   description: "",
   role: "",
-  model: "",
   specialty: "",
   enabled: true,
   executionMode: "Auto",
@@ -65,7 +65,6 @@ export function AgentGeneralPanel({ agentId }: AgentGeneralPanelProps) {
           displayName: agent.displayName ?? "",
           description: agent.description ?? "",
           role: agent.role ?? "",
-          model: agent.model ?? "",
           specialty: agent.specialty ?? "",
           enabled: agent.enabled ?? true,
           executionMode: agent.executionMode ?? "Auto",
@@ -75,7 +74,7 @@ export function AgentGeneralPanel({ agentId }: AgentGeneralPanelProps) {
 
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [seededFor, setSeededFor] = useState<string | null>(null);
-  const fingerprint = `${agentId}:${persisted.displayName}:${persisted.description}:${persisted.role}:${persisted.model}:${persisted.specialty}:${persisted.enabled}:${persisted.executionMode}`;
+  const fingerprint = `${agentId}:${persisted.displayName}:${persisted.description}:${persisted.role}:${persisted.specialty}:${persisted.enabled}:${persisted.executionMode}`;
 
   // Render-phase derived-state pattern (same shape <InstructionsPanel> uses)
   // so the form seeds from the latest persisted snapshot without paying a
@@ -90,7 +89,6 @@ export function AgentGeneralPanel({ agentId }: AgentGeneralPanelProps) {
     draft.displayName !== persisted.displayName ||
     draft.description !== persisted.description ||
     draft.role !== persisted.role ||
-    draft.model !== persisted.model ||
     draft.specialty !== persisted.specialty ||
     draft.enabled !== persisted.enabled ||
     draft.executionMode !== persisted.executionMode;
@@ -106,9 +104,6 @@ export function AgentGeneralPanel({ agentId }: AgentGeneralPanelProps) {
       }
       if (draft.role !== persisted.role) {
         patch.role = draft.role;
-      }
-      if (draft.model !== persisted.model) {
-        patch.model = draft.model;
       }
       if (draft.specialty !== persisted.specialty) {
         patch.specialty = draft.specialty;
@@ -201,20 +196,6 @@ export function AgentGeneralPanel({ agentId }: AgentGeneralPanelProps) {
                 placeholder="e.g. reviewer"
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, specialty: e.target.value }))
-                }
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs text-muted-foreground">
-                Model (hint)
-              </span>
-              <Input
-                data-testid="agent-general-model"
-                value={draft.model}
-                placeholder="e.g. claude-3-5-sonnet-latest"
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, model: e.target.value }))
                 }
               />
             </label>
