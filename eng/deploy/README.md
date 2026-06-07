@@ -493,6 +493,24 @@ automatically for any public FQDN it serves, provided:
 Hostnames ending in `.localhost`, set to `localhost`, or private LAN names
 like `*.local` fall back to plain HTTP — useful for local Podman runs.
 
+**`TLS_MODE` — HTTPS without an internet-facing host** (both Caddyfiles;
+see [ADR-0068](../../docs/decisions/0068-mechanism-agnostic-tls-mode.md)). The
+default `auto` is the Let's Encrypt flow above. For a private deployment that
+can't (or shouldn't) be reached from the public internet, set `DEPLOY_SCHEME=https`
+plus one of:
+
+- `TLS_MODE=internal` — Caddy's local CA issues a self-signed cert for any
+  hostname (no public DNS or open 80/443; works on high ports). Distribute Caddy's
+  root CA from the `spring-caddy-data` volume
+  (`/data/caddy/pki/authorities/local/root.crt`) to clients.
+- `TLS_MODE=custom` — serve your own cert from `TLS_CERT_FILE` / `TLS_KEY_FILE`
+  (mounted into `spring-caddy`; default `/etc/caddy/tls/tls.{crt,key}` — a
+  commented volume ships in `docker-compose.yml`).
+
+`install.sh` sets `TLS_MODE` for you: it auto-enables `auto` only when your
+hostname's DNS verifiably resolves to this host on 80/443, otherwise keeps HTTP
+and offers `internal`.
+
 ### Single-host deployment (default)
 
 The default `Caddyfile` puts everything behind a single public hostname
@@ -521,9 +539,11 @@ ACME_EMAIL=ops@example.com
 SPRING_CADDYFILE=Caddyfile.multi-host
 ```
 
-Each hostname gets its own certificate. Any unset `*_HOSTNAME` falls back
-to `DEPLOY_HOSTNAME`, so you can mix (e.g. share the API and portal on one
-host while giving the webhook endpoint its own).
+Each hostname gets its own certificate and **must be distinct** — Caddy rejects
+duplicate site addresses. `deploy.sh` resolves any unset `*_HOSTNAME` to
+`DEPLOY_HOSTNAME`, then `localhost` (it does this in bash because Caddy's env
+substitution can't express the nested fallback). Set `TLS_MODE` in `spring.env`
+exactly as for the single-host case.
 
 ## Local-dev webhook forwarding (`gh-webhook-forward.sh`)
 

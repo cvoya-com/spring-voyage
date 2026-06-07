@@ -75,6 +75,7 @@ For open design questions not yet decided, see
 | [0065](0065-agent-memory-architecture.md) | Agent memory architecture: typed memory, durable store canonical, coordination via threads + instruction-level authority | Accepted — builds on [0030](0030-thread-model.md); push-vs-pull ([#1301](https://github.com/cvoya-com/spring-voyage/issues/1301)) left open |
 | [0066](0066-a2a-process-runtime-engine-orchestration.md) | The `a2a-process` runtime: hosting an external orchestration engine (LangGraph) | Accepted — builds on [0021](0021-spring-voyage-is-not-an-agent-runtime.md), [0038](0038-agent-runtime-and-model-provider-split.md), [0053](0053-units-are-agents-and-one-way-delivery.md) ([#2591](https://github.com/cvoya-com/spring-voyage/issues/2591)) |
 | [0067](0067-runtime-config-single-source-of-truth.md) | Runtime/DB config is the single source of truth; package retention is install provenance only; export reconstructs | Accepted — supersedes [0035](0035-package-as-bundling-unit.md) dec 12, amends [0040](0040-actor-state-ownership-matrix.md) ([#3090](https://github.com/cvoya-com/spring-voyage/issues/3090)) |
+| [0068](0068-mechanism-agnostic-tls-mode.md) | Mechanism-agnostic TLS: `TLS_MODE` decouples HTTPS from internet-facing (internal CA / custom cert / ACME) | Accepted — `TLS_MODE` on both Caddyfiles + installer probe ([#2928](https://github.com/cvoya-com/spring-voyage/issues/2928)) + multi-host nested-default fix |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 

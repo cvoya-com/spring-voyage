@@ -79,6 +79,25 @@ http_authority() {
   fi
 }
 
+# Best-effort check that DEPLOY_HOSTNAME is ready for the Let's Encrypt challenge:
+# its DNS resolves to an IP configured on this host, and Caddy keeps the standard
+# 80/443 ports. External reachability can't be verified from the host itself, so
+# this errs toward "not ready" — a false negative keeps the safe HTTP default; a
+# false positive would leave the site unserved on a failed ACME challenge (#2928).
+acme_ready() {
+  local host="$1" resolved local_ips rip
+  # Remapped Caddy ports can't satisfy the HTTP-01 / TLS-ALPN challenge at all.
+  [[ "${CADDY_HTTP_PORT:-80}" == "80" && "${CADDY_HTTPS_PORT:-443}" == "443" ]] || return 1
+  resolved="$(getent ahosts "$host" 2>/dev/null | awk '{print $1}' | sort -u)"
+  [[ -n "$resolved" ]] || return 1
+  local_ips="$( { hostname -I 2>/dev/null; ip -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1; } | tr ' ' '\n' | sort -u )"
+  [[ -n "$local_ips" ]] || return 1
+  while IFS= read -r rip; do
+    [[ -n "$rip" ]] && printf '%s\n' "$local_ips" | grep -qxF "$rip" && return 0
+  done <<< "$resolved"
+  return 1
+}
+
 # ---------------------------------------------------------------------------
 # Usage
 # ---------------------------------------------------------------------------
@@ -861,16 +880,52 @@ fi
 # and callback_urls point at THIS deployment — not the CLI's localhost:5000
 # default — and callback_urls matches GitHub__OAuth__RedirectUri exactly (GitHub
 # validates the OAuth redirect_uri against it byte-for-byte).
+# TLS decision (ADR-0068). A loopback host never gets TLS (no public cert;
+# https://localhost would reset). For a custom hostname we do NOT blindly enable
+# Let's Encrypt — if DNS isn't pointed here (or Caddy was remapped off 80/443)
+# the ACME challenge fails and the site is left unserved (#2928). Probe
+# readiness: auto-enable Let's Encrypt only when verifiable, else keep the safe
+# HTTP default and offer private HTTPS via Caddy's local CA (TLS_MODE=internal),
+# which needs no public DNS or open ports. TLS_MODE is written to spring.env.
+TLS_MODE=""
 case "${DEPLOY_HOSTNAME}" in
   localhost | *.localhost | 127.0.0.1 | ::1)
     DEPLOY_SCHEME="http"
-    REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTP_PORT:-80}" 80)"
     ;;
   *)
-    DEPLOY_SCHEME="https"
-    REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
+    if acme_ready "${DEPLOY_HOSTNAME}"; then
+      DEPLOY_SCHEME="https"; TLS_MODE="auto"
+      ok "DNS for ${DEPLOY_HOSTNAME} resolves to this host on 80/443 — enabling automatic Let's Encrypt."
+    elif [[ "$ASSUME_YES" -eq 0 ]] && { [[ -t 0 ]] || [[ -r /dev/tty ]]; }; then
+      warn "${DEPLOY_HOSTNAME} doesn't verifiably resolve to this host, so automatic Let's Encrypt may fail."
+      printf '  Choose TLS:\n' >&2
+      printf '    1) Plain HTTP for now (default) — enable TLS later by fixing DNS + re-running, or set TLS_MODE in spring.env\n' >&2
+      printf '    2) Private HTTPS via Caddy'\''s local CA — works now; browsers warn until you trust the CA\n' >&2
+      printf '    3) Public Let'\''s Encrypt anyway — only if this host really is reachable on 80/443 (e.g. behind NAT/LB)\n' >&2
+      printf '  %sTLS choice%s [1]: ' "${BOLD}" "${NC}" >&2
+      if [[ -t 0 ]]; then
+        IFS= read -r tls_answer || tls_answer=""
+      elif [[ -r /dev/tty ]]; then
+        IFS= read -r tls_answer </dev/tty || tls_answer=""
+      else
+        tls_answer=""
+      fi
+      case "${tls_answer}" in
+        2) DEPLOY_SCHEME="https"; TLS_MODE="internal" ;;
+        3) DEPLOY_SCHEME="https"; TLS_MODE="auto" ;;
+        *) DEPLOY_SCHEME="http" ;;
+      esac
+    else
+      DEPLOY_SCHEME="http"
+      warn "${DEPLOY_HOSTNAME} not verifiably reachable for Let's Encrypt; defaulting to HTTP. Set DEPLOY_SCHEME=https plus TLS_MODE=auto (public) or TLS_MODE=internal (private CA) in ${SPRING_ENV_FILE} and re-run to enable TLS."
+    fi
     ;;
 esac
+if [[ "${DEPLOY_SCHEME}" == "https" ]]; then
+  REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
+else
+  REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTP_PORT:-80}" 80)"
+fi
 REDIRECT_URI="${DEPLOY_SCHEME}://${REDIRECT_AUTHORITY}/api/v1/tenant/connectors/github/oauth/callback"
 WEBHOOK_URL="${DEPLOY_SCHEME}://${REDIRECT_AUTHORITY}/api/v1/webhooks/github"
 # Default App name suggestion; the operator can rename it on GitHub. Required by
@@ -897,6 +952,9 @@ chmod 600 "${SPRING_ENV_FILE}"
   printf 'SPRING_SECRETS_AES_KEY=%s\n' "${SPRING_SECRETS_AES_KEY}"
   printf 'DEPLOY_HOSTNAME=%s\n' "${DEPLOY_HOSTNAME}"
   printf 'DEPLOY_SCHEME=%s\n' "${DEPLOY_SCHEME}"
+  if [[ -n "${TLS_MODE}" ]]; then
+    printf 'TLS_MODE=%s\n' "${TLS_MODE}"
+  fi
   printf 'GitHub__OAuth__RedirectUri=%s\n' "${REDIRECT_URI}"
   printf 'Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath=%s\n' "${DAPR_COMPONENTS_PATH}"
   printf 'SPRING_DISPATCHER_BIN=%s\n' "${DISPATCHER_BIN}"
@@ -1048,6 +1106,12 @@ cat <<EOF
     voyage uninstall --purge    # factory reset
 
 EOF
+
+if [[ "${TLS_MODE}" == "internal" ]]; then
+  info "TLS: serving HTTPS with Caddy's local CA (self-signed). Trust it on each client:"
+  info "  podman cp spring-caddy:/data/caddy/pki/authorities/local/root.crt ./spring-root.crt"
+  info "  then add spring-root.crt to the system / browser trust store."
+fi
 
 if [[ "$CLI_ENDPOINT_CONFIGURED" -eq 1 ]]; then
   info "Pointed the spring CLI at ${WEB_URL} (${SPRING_CLI_CONFIG_FILE})."
