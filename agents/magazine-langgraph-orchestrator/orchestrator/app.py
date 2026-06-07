@@ -32,6 +32,7 @@ from spring_voyage_agent_sdk import (
 )
 
 from orchestrator import mcp as mcp_tools
+from orchestrator.commands import build_command_registry
 from orchestrator.coordinator import Coordinator
 from orchestrator.graph import build_slot_graph, make_sqlite_checkpointer
 from orchestrator.reply import body_from_payload
@@ -163,17 +164,24 @@ async def initialize(context: IAgentContext) -> None:
             mcp_config_path=mcp_config_path,
         )
 
+    graph = build_slot_graph(checkpointer)
     _coordinator = Coordinator(
         store=OrchestratorStore(context.workspace_path),
         mcp=mcp_tools.McpClient(context.mcp_url),
-        graph=build_slot_graph(checkpointer),
+        graph=graph,
         # ADR-0066 §2: seed the durable, agent-scoped MCP token (used by the
         # data-plane sv.messaging calls; refreshed per message).
         token=context.mcp_token or "",
         invoke=invoke,
     )
 
-    tool_server = build_tool_server(_coordinator, port=port)
+    # ADR-0066 §6 / #3078: the tool surface is built from the opt-in command
+    # registry — the six lifecycle commands plus a tool for every graph node the
+    # workflow has explicitly annotated control-plane. The default pipeline
+    # annotates none, so this is the lifecycle six and the data plane stays
+    # closed by default.
+    registry = build_command_registry(_coordinator, graph)
+    tool_server = build_tool_server(_coordinator, registry=registry, port=port)
     _tool_server_task = asyncio.create_task(_serve_tool_server(tool_server))
     logger.info(
         "Magazine orchestrator initialized (workspace=%s); tools on 127.0.0.1:%d",

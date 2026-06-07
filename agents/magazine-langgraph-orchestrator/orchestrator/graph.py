@@ -79,11 +79,39 @@ def build_slot_graph(checkpointer: Any):
 
     Topology: ``START → draft → fact_check → copy_edit → package → END`` — one
     node per :data:`orchestrator.pipeline.SLOT_STAGES` entry, in order.
+
+    These four pipeline stages are deliberately **un-annotated**: they are the
+    data plane the engine runs autonomously, so the LLM must not be able to drive
+    them (ADR-0066 §6). The orchestration tool surface is therefore the lifecycle
+    commands alone and the graph-derived seam (#3078) ships empty.
+
+    To expose a node to the control-plane LLM as a discoverable MCP tool, the
+    author opts that node in by passing a control-plane annotation as its
+    ``metadata=`` — e.g.::
+
+        from orchestrator.commands import control_plane_metadata
+
+        builder.add_node(
+            "rush_slot",
+            _rush_node(),
+            metadata=control_plane_metadata(
+                name="rush_slot",
+                summary="Skip the slot straight to packaging.",
+                kind="command",
+            ),
+        )
+
+    :func:`orchestrator.commands.graph_derived_commands` then reflects over the
+    compiled graph and emits a tool for that node — and only that node — wiring
+    it through a coordinator-routed handler so the LLM still passes identifiers,
+    never raw graph state.
     """
     builder: StateGraph = StateGraph(SlotState)
 
     prev = START
     for stage in pipeline.SLOT_STAGES:
+        # No ``metadata=control_plane_metadata(...)`` here — see the docstring:
+        # the pipeline stages stay closed to the control plane by default.
         builder.add_node(stage, _stage_node(stage))
         builder.add_edge(prev, stage)
         prev = stage
