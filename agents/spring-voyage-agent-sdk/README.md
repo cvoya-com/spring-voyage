@@ -41,7 +41,7 @@ Delivered to `initialize` from env vars and one workspace file
 | `llm_provider_token` | `SPRING_LLM_PROVIDER_TOKEN` | yes |
 | `mcp_url` | `SPRING_MCP_URL` | yes |
 | `mcp_token` | `SPRING_MCP_TOKEN` | yes |
-| `telemetry_url` | `SPRING_TELEMETRY_URL` | yes |
+| `telemetry_url` | `SPRING_TELEMETRY_URL` | no |
 | `telemetry_token` | `SPRING_TELEMETRY_TOKEN` | no |
 | `workspace_path` | `SPRING_WORKSPACE_PATH` | yes |
 | `concurrent_threads` | `SPRING_CONCURRENT_THREADS` | yes |

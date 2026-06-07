@@ -40,6 +40,12 @@ _SYSTEM_PROMPT_REL_PATH = Path(".spring") / "system-prompt.md"
 # (surfaced as `Message.mcp_token`); requiring it non-empty here would make an
 # always-on a2a-process fail to initialise. Per-turn CLI runtimes still receive
 # a non-empty value, so this is a strict relaxation.
+#
+# SPRING_TELEMETRY_URL is also NOT required (#2916). Telemetry is conditional /
+# opt-in infrastructure (spec §2.2.1): AgentContextBuilder emits the telemetry
+# vars only when a collector is configured and omits them otherwise. Requiring
+# the URL here would make any deployment without telemetry fail to bootstrap an
+# SDK agent. Telemetry export is best-effort when the endpoint is absent.
 _REQUIRED_ENV_VARS = (
     _ENV_TENANT_ID,
     _ENV_AGENT_ID,
@@ -48,7 +54,6 @@ _REQUIRED_ENV_VARS = (
     _ENV_LLM_PROVIDER_URL,
     _ENV_LLM_PROVIDER_TOKEN,
     _ENV_MCP_URL,
-    _ENV_TELEMETRY_URL,
     _ENV_WORKSPACE_PATH,
     _ENV_CONCURRENT_THREADS,
 )
@@ -93,7 +98,7 @@ class IAgentContext:
         llm_provider_token: str,
         mcp_url: str,
         mcp_token: str,
-        telemetry_url: str,
+        telemetry_url: str | None,
         telemetry_token: str | None,
         workspace_path: str,
         concurrent_threads: bool,
@@ -237,7 +242,10 @@ class IAgentContext:
             # Optional (ADR-0066 §2): per-turn token arrives on each message for
             # always-on runtimes. Empty string when the platform deferred it.
             mcp_token=os.environ.get(_ENV_MCP_TOKEN, ""),
-            telemetry_url=os.environ[_ENV_TELEMETRY_URL],
+            # Optional (#2916): telemetry is opt-in. The builder omits
+            # SPRING_TELEMETRY_URL when no collector is configured; the agent
+            # then runs without telemetry export rather than failing to boot.
+            telemetry_url=os.environ.get(_ENV_TELEMETRY_URL) or None,
             telemetry_token=os.environ.get(_ENV_TELEMETRY_TOKEN) or None,
             workspace_path=os.environ[_ENV_WORKSPACE_PATH],
             concurrent_threads=(concurrent_threads_raw == "true"),
