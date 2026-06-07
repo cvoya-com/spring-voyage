@@ -1,6 +1,5 @@
-import { apiPost } from "../../fixtures/api.js";
+import { apiPost, seedAgent, seedUnit } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
@@ -22,41 +21,31 @@ test.describe("engagement — observe-only banner for non-participants", () => {
     tracker,
   }) => {
     const unit = tracker.unit(unitName("obs"));
-    const a = tracker.agent(agentName("obs-a"));
-    const b = tracker.agent(agentName("obs-b"));
+    const aSlug = tracker.agent(agentName("obs-a"));
+    const bSlug = tracker.agent(agentName("obs-b"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Observe banner spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
-    await apiPost("/api/v1/tenant/agents", {
-      name: a,
-      displayName: a,
+    const a = await seedAgent(aSlug, {
       description: "Observe banner spec (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
-    await apiPost("/api/v1/tenant/agents", {
-      name: b,
-      displayName: b,
+    const b = await seedAgent(bSlug, {
       description: "Observe banner spec (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
 
     // Send an A2A message: agent → agent. Routing through /messages with a
     // sender override creates a thread whose participants are both agents.
     // Wire shape: SendMessageRequest = { to, type, payload, threadId? }.
-    // The API doesn't accept a caller-side `from` override (server uses
-    // the authenticated subject); we still try and tolerate any
-    // server-side rejection because the spec then skips.
+    // Addresses key on the agent's hex id (#2473). The API doesn't accept a
+    // caller-side `from` override (server uses the authenticated subject);
+    // we still try and tolerate any server-side rejection because the spec
+    // then skips.
     const seed = await apiPost<MessageResponse>("/api/v1/tenant/messages", {
-      from: { scheme: "agent", path: a },
-      to: { scheme: "agent", path: b },
+      from: { scheme: "agent", path: a.hex },
+      to: { scheme: "agent", path: b.hex },
       type: "Domain",
       payload: { text: "ping (e2e-portal observe-banner spec)" },
     }).catch(() => ({ threadId: "" }));

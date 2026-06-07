@@ -32,7 +32,10 @@ trap 'e2e::cleanup_unit "${unit}"; e2e::cleanup_agent "${agent}"' EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+unit_body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "carrier unit create succeeds"
+# Canonical hex id of the carrier unit — needed to grant the caller's Hat.
+unit_id="$(printf '%s' "${unit_body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 e2e::log "spring agent create --name ${agent} --unit ${unit}"
 response="$(e2e::cli_agent_create --output json --name "${agent}" --unit "${unit}")"
@@ -50,6 +53,13 @@ fi
 # Guids in `to.path` now.
 agent_id_hex="${agent_id//-/}"
 expected_source="agent:${agent_id_hex}"
+
+# #2972 (commit c3f92950): the tenant-user → agent Domain send is gated on Hat
+# reachability — the caller must wear a Hat that is a human member of a unit
+# the agent sits in. Grant the caller's own Hat owner membership on the
+# carrier unit so the kickoff POST reaches the actor (and emits the lifecycle
+# events) instead of being rejected 403 NoReachableHat.
+e2e::add_caller_hat "${unit_id}"
 
 # --- Kick off a fresh thread -------------------------------------------------
 # Raw HTTP — the CLI currently crashes on the server's 502 path when no
@@ -118,21 +128,33 @@ else
     e2e::fail "ThreadStarted never surfaced within 10s: ${thread_body:0:400}"
 fi
 
-# 3. StateChanged — "Idle → Active" when the dispatch task is armed.
-# In the fast pool the agent has no execution.image/runtime configured, so
-# the dispatcher emits ErrorOccurred before transitioning state. Either
-# event satisfies the "dispatch tail kicked in" check the original test
-# was after; assert at least one of them landed within the poll window.
-if state_body="$(poll_for_event_type StateChanged)"; then
-    e2e::ok "thread lifecycle: StateChanged event recorded"
-    e2e::expect_contains "Idle to Active" "${state_body}" "StateChanged carries the Idle→Active transition"
-elif err_body="$(poll_for_event_type ErrorOccurred)"; then
-    # Fast-pool path: dispatch fails before state can transition. The
-    # error event still proves the dispatcher reached the agent, which is
-    # the smoke check this scenario exists to provide.
-    e2e::ok "thread lifecycle: dispatcher tail emitted ErrorOccurred (fast-pool default; happy-path StateChanged is covered by the llm-pool turn scenario)"
+# 3. Dispatch tail — proves the message reached the dispatcher. The agent now
+# emits a StateChanged "…created" event at registration that ALSO matches
+# source+eventType, so a bare StateChanged poll matches that instead of a
+# transition; look specifically for the "Idle → Active" summary. In the fast
+# pool the agent has no execution config, so the dispatcher runs
+# MessageDispatchedToRuntime → RuntimeStarted → ErrorOccurred and never reaches
+# Idle→Active. Accept either the transition (happy path, covered end-to-end by
+# the llm-pool turn scenario) or ErrorOccurred (fast-pool default) as proof the
+# dispatch tail kicked in. Check both each iteration so the deterministic
+# ErrorOccurred path doesn't wait out the full window on the absent transition.
+tail_ok=0
+tail_kind=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    sc_resp="$(e2e::http GET "/api/v1/tenant/activity?source=${expected_source}&eventType=StateChanged&limit=20")"
+    if [[ "${sc_resp%$'\n'*}" == *"Idle to Active"* ]]; then
+        tail_ok=1; tail_kind="StateChanged Idle→Active"; break
+    fi
+    err_resp="$(e2e::http GET "/api/v1/tenant/activity?source=${expected_source}&eventType=ErrorOccurred&limit=5")"
+    if [[ "${err_resp%$'\n'*}" == *"ErrorOccurred"* ]]; then
+        tail_ok=1; tail_kind="ErrorOccurred (fast-pool default)"; break
+    fi
+    sleep 1
+done
+if (( tail_ok == 1 )); then
+    e2e::ok "thread lifecycle: dispatch tail recorded — ${tail_kind}"
 else
-    e2e::fail "neither StateChanged nor ErrorOccurred surfaced within 10s: ${state_body:0:400}"
+    e2e::fail "neither StateChanged Idle→Active nor ErrorOccurred surfaced within 10s"
 fi
 
 e2e::summary

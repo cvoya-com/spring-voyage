@@ -10,22 +10,28 @@ import type { Page } from "@playwright/test";
  */
 
 // Mirrors `src/Cvoya.Spring.Web/src/lib/extensions/defaults.tsx` —
-// the default sidebar route registry. Specs that compare what the
-// sidebar should expose pull from this map; if the registry changes,
-// update both in sync. `agents` and `engagement` are intentionally
-// absent — the unified Units explorer hosts agents (#815), and the
-// engagement portal lives at its own origin/path outside the
-// management sidebar.
+// the default sidebar route registry (`defaultRoutes`). Specs that compare
+// what the sidebar should expose pull from this map; if the registry
+// changes, update both in sync.
+//
+// #2473 / #2517: the old "Units" link at `/units` is now "Explorer" at
+// `/explorer` (the legacy `/units` route still renders the Explorer canvas
+// but is no longer the sidebar target). #2787 added "Conversations"
+// (`/conversations`); #1454 surfaced "Engagement" (`/engagement`) in the
+// management sidebar. `agents` has no sidebar entry — the unified Explorer
+// hosts agents (#815).
 export const NAV_PATHS = {
   dashboard: "/",
-  units: "/units",
-  inbox: "/inbox",
+  explorer: "/explorer",
   activity: "/activity",
+  conversations: "/conversations",
   analytics: "/analytics",
+  inbox: "/inbox",
+  discovery: "/discovery",
+  engagement: "/engagement",
+  connectors: "/connectors",
   policies: "/policies",
   budgets: "/budgets",
-  connectors: "/connectors",
-  discovery: "/discovery",
   settings: "/settings",
 } as const;
 
@@ -45,6 +51,38 @@ export async function expectAtRoute(page: Page, path: string): Promise<void> {
   await page.waitForURL((url) => url.pathname.startsWith(path), {
     timeout: 10_000,
   });
+}
+
+/**
+ * Mirror the portal's `toExplorerPathSegment` (`src/lib/explorer-url.ts`):
+ * the canonical Explorer URL segment for a unit/agent is its id with the
+ * dashes stripped when the id is a UUID (the 32-char no-dash hex). Anything
+ * that isn't a UUID passes through unchanged.
+ */
+export function toExplorerHex(idOrHex: string): string {
+  const stripped = idOrHex.replace(/-/g, "");
+  if (/^[0-9a-f]{32}$/i.test(stripped)) return stripped;
+  return idOrHex;
+}
+
+/**
+ * Navigate straight to a unit's Explorer detail page, optionally pinned to
+ * a tab / sub-tab. Accepts a dashed UUID or the 32-char hex; normalises to
+ * the canonical no-dash path segment the `/explorer/units/<id>` route reads.
+ */
+export async function gotoExplorerUnit(
+  page: Page,
+  idOrHex: string,
+  opts: { tab?: string; subtab?: string } = {},
+): Promise<void> {
+  const hex = toExplorerHex(idOrHex);
+  const params = new URLSearchParams();
+  if (opts.tab) params.set("tab", opts.tab);
+  if (opts.subtab) params.set("subtab", opts.subtab);
+  const qs = params.toString();
+  await page.goto(
+    `/explorer/units/${encodeURIComponent(hex)}${qs ? `?${qs}` : ""}`,
+  );
 }
 
 /**

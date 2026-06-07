@@ -21,6 +21,17 @@ source "${HERE}/../../_lib.sh"
 # scenario host and the API.
 run_start="$(date -u +%Y-%m-%dT%H:%M:%S).000Z"
 
+# Seed a deterministic StateChanged event so the eventType filter below has a
+# matching row even on a freshly-wiped tenant. A bare `unit create` transitions
+# the unit actor (→ Draft) and emits exactly one StateChanged activity event.
+# The previous form assumed the shared environment already carried StateChanged
+# rows from prior runs — false on a clean tenant, where this scenario (sorted
+# first, alphabetically) runs before any other unit is created.
+seed_unit="$(e2e::unit_name activity-seed)"
+trap 'e2e::cleanup_unit "${seed_unit}"' EXIT
+e2e::log "spring unit create ${seed_unit} (seed a StateChanged event)"
+e2e::cli_unit_create --output json "${seed_unit}" >/dev/null
+
 # --- Shape check: unfiltered query returns paginated payload -----------------
 # ActivityQueryResult is { items, totalCount, page, pageSize }. All four
 # fields must be present even when the store is empty.
@@ -35,15 +46,28 @@ e2e::expect_contains "\"page\":" "${body}" "response carries page"
 e2e::expect_contains "\"pageSize\":" "${body}" "response carries pageSize"
 
 # --- eventType filter: StateChanged is emitted by every unit lifecycle -------
-# The environment has at least one prior unit create, so StateChanged must
-# have at least one row. Using the filter proves the server-side WHERE is
-# wired; a case-sensitivity regression would surface here.
-e2e::log "GET /api/v1/tenant/activity?eventType=StateChanged"
-response="$(e2e::http GET "/api/v1/tenant/activity?eventType=StateChanged&limit=5")"
-status="${response##*$'\n'}"
-body="${response%$'\n'*}"
+# The seed unit above emits a StateChanged event; using the filter proves the
+# server-side WHERE is wired (a case-sensitivity regression would surface
+# here). Scope by From=${run_start} so only this run's seeded event counts,
+# and poll because ActivityEventPersister batches writes ~1s after the event.
+e2e::log "GET /api/v1/tenant/activity?eventType=StateChanged&From=${run_start} (poll for the seeded event)"
+found_state_changed=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    response="$(e2e::http GET "/api/v1/tenant/activity?eventType=StateChanged&From=${run_start}&limit=5")"
+    status="${response##*$'\n'}"
+    body="${response%$'\n'*}"
+    if [[ "${status}" == "200" ]] && [[ "${body}" == *"\"StateChanged\""* ]]; then
+        found_state_changed=1
+        break
+    fi
+    sleep 1
+done
 e2e::expect_status "200" "${status}" "eventType filter query returns 200"
-e2e::expect_contains "\"StateChanged\"" "${body}" "filtered response contains StateChanged events"
+if (( found_state_changed == 1 )); then
+    e2e::ok "filtered response contains the seeded StateChanged event"
+else
+    e2e::fail "StateChanged filter returned no rows within 10s (seed unit ${seed_unit}): ${body:0:400}"
+fi
 
 # --- severity filter: Info threshold drops Debug entries ---------------------
 # The ActivityQueryService treats severity as an exact match, not a minimum;

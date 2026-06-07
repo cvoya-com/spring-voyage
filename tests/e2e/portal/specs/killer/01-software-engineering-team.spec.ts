@@ -1,22 +1,32 @@
+import {
+  packageInstallBlockedReason,
+  resolveUnitIdByDisplayName,
+} from "../../fixtures/api.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * v0.1 killer use case (Area E2):
  *
  *   1. User installs the `software-engineering` catalog package via the
- *      wizard. Post-#1563 this is the canonical replacement for the deleted
- *      "Mode = Template" path; the catalog branch installs a pre-built unit
+ *      wizard — the catalog branch installs a pre-built unit
  *      ("engineering-team") with all its agents wired.
  *   2. User opens the unit detail and sees the seeded agents on the
  *      Members tab.
  *   3. User sends a first message via the Messages tab and verifies the
- *      unit's agent replies (covers #1465 — silent regression
- *      class where the dispatcher ↔ agent transport stops working).
+ *      unit's agent replies (covers #1465 — silent regression class where
+ *      the dispatcher ↔ agent transport stops working).
  *
- * GitHub binding is exercised separately by the connector specs and is
- * NOT part of this flow — the v0.1 catalog package's install pipeline
- * does not gate on a real GitHub installation, so this spec focuses on
- * the wizard → unit → message → reply flow.
+ * PRECONDITION (credential-free environments skip): the OSS
+ * `software-engineering` package now pins `runtime: claude-code` (a
+ * required `anthropic-oauth` credential) AND declares a required `github`
+ * connector. The install pipeline fails-fast (400) without both, and this
+ * suite is credential-free by design (dapr-agent + ollama, no operator
+ * secrets), so the install cannot complete here. The spec runs the full
+ * flow only when the package's requirements are already satisfied on the
+ * tenant (an operator-provisioned deployment); otherwise it skips with the
+ * precise blocker. The CLI suite, which can seed the tenant secret + a PAT
+ * connector binding, covers the install-with-credential path.
  */
 
 test.describe("killer use case — software-engineering team", () => {
@@ -32,6 +42,15 @@ test.describe("killer use case — software-engineering team", () => {
     const unit = "engineering-team";
     tracker.unit(unit);
 
+    const blocked = await packageInstallBlockedReason("software-engineering");
+    if (blocked) {
+      test.skip(
+        true,
+        `Catalog install cannot complete credential-free: ${blocked}. ` +
+          `Provision the credential/connector (or run the CLI suite) to exercise this flow.`,
+      );
+    }
+
     // ── Wizard: catalog branch ───────────────────────────────────────────
     await page.goto("/units/create");
     await page.getByTestId("source-card-catalog").click();
@@ -41,8 +60,9 @@ test.describe("killer use case — software-engineering team", () => {
     await page.getByTestId("package-option-software-engineering").click();
     await page.getByRole("button", { name: /^next$/i }).click();
 
-    // Connector step — skip; v0.1 catalog install does not gate on a
-    // real binding.
+    // Connector step — skip when the package declares no required binding
+    // (the precondition guard above ensures we only get here when nothing
+    // is required).
     const skip = page.getByRole("button", { name: /skip connector|don.?t bind/i }).first();
     if (await skip.isVisible().catch(() => false)) {
       await skip.click();
@@ -50,31 +70,24 @@ test.describe("killer use case — software-engineering team", () => {
       await page.getByRole("button", { name: /^next$/i }).click();
     }
 
-    // Install. The wizard navigates to /units when the install reaches
-    // active state; we wait for that URL transition as the load-bearing
-    // signal and only inspect the failed panel if the URL never moves
-    // (avoids a transient `install-status-failed` flash mid-staging).
+    // Install. The wizard navigates away from /units/create when the
+    // install reaches active state; the unit row is created server-side, so
+    // resolve its hex and navigate ourselves rather than racing the
+    // wizard's lifecycle-gated redirect.
     await page.getByTestId("install-unit-button").click();
-    try {
-      await page.waitForURL((url) => !url.pathname.endsWith("/units/create"), {
+    await expect
+      .poll(async () => resolveUnitIdByDisplayName(unit), {
         timeout: 120_000,
-      });
-    } catch (err) {
-      const failed = page.getByTestId("install-status-failed");
-      if (await failed.isVisible().catch(() => false)) {
-        const errText = (await failed.innerText().catch(() => "")) || "(no error text)";
-        throw new Error(`Catalog install failed: ${errText}`);
-      }
-      throw err;
-    }
+        intervals: [2000, 5000, 10_000],
+      })
+      .not.toBeNull();
+    const unitId = await resolveUnitIdByDisplayName(unit);
 
     // ── Unit detail boot ────────────────────────────────────────────────
     // Cache invalidation between the install completing and the
-    // Members-tab membership query landing can take a few seconds; on
-    // a cold runner it can be longer. Reload the route once if the
-    // first render came back empty (the React Query cache key is
-    // tenant-tree-scoped and refetches on focus / mount).
-    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Members`);
+    // Members-tab membership query landing can take a few seconds; reload
+    // the route once if the first render came back empty.
+    await gotoExplorerUnit(page, unitId!, { tab: "Members" });
     const membership = page.locator('[data-testid^="unit-membership-"]').first();
     try {
       await expect(membership).toBeVisible({ timeout: 30_000 });
@@ -84,7 +97,7 @@ test.describe("killer use case — software-engineering team", () => {
     }
 
     // ── First message → engagement (#1459 / #1460 / #1465) ──────────────
-    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Messages`);
+    await gotoExplorerUnit(page, unitId!, { tab: "Messages" });
     const composer = page.getByTestId("tab-unit-messages-composer-input");
     if (!(await composer.isVisible().catch(() => false))) {
       test.info().annotations.push({

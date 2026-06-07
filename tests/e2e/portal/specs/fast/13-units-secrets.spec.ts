@@ -1,7 +1,7 @@
-import { apiGet, apiPost } from "../../fixtures/api.js";
+import { apiGet, seedUnit } from "../../fixtures/api.js";
 import { secretName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Unit secrets — create/list/delete via the Secrets tab.
@@ -24,21 +24,10 @@ test.describe("units — secrets tab", () => {
     const name = tracker.unit(unitName("secrets"));
     const sName = secretName("u1");
 
-    await apiPost("/api/v1/tenant/units", {
-      name,
-      displayName: name,
-      description: "Secrets spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
-    });
+    const u = await seedUnit(name, { description: "Secrets spec (e2e-portal)" });
 
-    // Secrets moved under Config (subtab) per QUALITY-unit-config-subtabs.
-    await page.goto(
-      `/units?node=${encodeURIComponent(name)}&tab=Config&subtab=Secrets`,
-    );
+    // Secrets moved under Config (subtab) per #2254.
+    await gotoExplorerUnit(page, u.hex, { tab: "Config", subtab: "Secrets" });
 
     // The Add-secret form is rendered inline (no toggle button); just fill
     // it and submit. The form lives inside a Card whose CardTitle is
@@ -54,7 +43,7 @@ test.describe("units — secrets tab", () => {
 
     // Cross-check via API (NEVER returns plaintext, but does return the metadata row).
     const response = await apiGet<UnitSecretListResponse>(
-      `/api/v1/tenant/units/${encodeURIComponent(name)}/secrets`,
+      `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/secrets`,
     );
     expect(response.secrets.find((s) => s.name === sName)).toBeDefined();
 

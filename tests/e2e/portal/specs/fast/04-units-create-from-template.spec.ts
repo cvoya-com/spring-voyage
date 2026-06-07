@@ -2,83 +2,61 @@ import { expect, test } from "../../fixtures/test.js";
 
 /**
  * Wizard: Catalog source branch (post-#1563 replacement for the deleted
- * "Mode = Template" path). This spec drives the two zero-input catalog
- * packages:
- *   - software-engineering → unit `engineering-team`
- *   - product-management   → unit `product-squad`
+ * "Mode = Template" path).
  *
- * `spring-voyage-oss` declares three required GitHub inputs and is
- * covered by the sibling spec
- * `41-units-create-from-template-with-inputs.spec.ts` (#1615). Mirrors
- * the CLI scenario
- * `tests/e2e/cli/scenarios/units/unit-create-from-template.sh`
- * which now drives `spring package install <name>` for the same flow.
+ * Every unit-installing catalog package in the OSS build now pins
+ * `runtime: claude-code` / `provider: anthropic` and therefore declares a
+ * required `anthropic-oauth` credential — the install fails-fast without
+ * it. This suite is deliberately credential-free (dapr-agent + ollama
+ * everywhere, no operator secrets), so we cannot drive a catalog install
+ * to the active/redirect state without seeding an Anthropic OAuth token.
  *
- * The catalog branch does NOT take a wizard-supplied unit name — the
- * package's manifest declares the canonical name. Cleanup is done
- * against that canonical name.
+ * Instead this spec exercises the credential-free-observable contract of
+ * the catalog branch: selecting a package surfaces its declared credential
+ * requirement on the Install step (the wizard's pre-flight
+ * `PackageCredentialRequirementsPanel`, #2181). `hello-world` is used
+ * because it declares the anthropic credential but NO required connector,
+ * so the Connector step can be skipped to reach Install.
+ *
+ * The full catalog-install-to-active flow (with credentials + the GitHub
+ * connector that `software-engineering` / `spring-voyage-oss` require) is
+ * covered by the CLI suite, which can seed the tenant secret.
  */
 
 test.describe("units — create from package (catalog wizard)", () => {
-  test("software-engineering package → engineering-team unit", async ({ page, tracker }) => {
-    const unit = "engineering-team";
-    tracker.unit(unit);
-    await runCatalogFlow(page, { packageName: "software-engineering", expectedUnit: unit });
-    await expect(page).toHaveURL(
-      new RegExp(`/units(?:\\?|$)`),
-    );
-  });
+  test("selecting a claude-code package surfaces its credential requirement before install", async ({
+    page,
+  }) => {
+    await page.goto("/units/create");
 
-  test("product-management package → product-squad unit", async ({ page, tracker }) => {
-    const unit = "product-squad";
-    tracker.unit(unit);
-    await runCatalogFlow(page, { packageName: "product-management", expectedUnit: unit });
-    await expect(page).toHaveURL(
-      new RegExp(`/units(?:\\?|$)`),
-    );
+    // Step 1 — Source: pick Catalog.
+    await page.getByTestId("source-card-catalog").click();
+    await page.getByRole("button", { name: /^next$/i }).click();
+
+    // Step 2 — Package picker. hello-world is a single-unit package with no
+    // required connector.
+    await page
+      .getByTestId("package-option-hello-world")
+      .waitFor({ timeout: 30_000 });
+    await page.getByTestId("package-option-hello-world").click();
+    await page.getByRole("button", { name: /^next$/i }).click();
+
+    // Step 3 — Connector (none required for hello-world): skip.
+    const skip = page
+      .getByRole("button", { name: /skip connector|don.?t bind/i })
+      .first();
+    if (await skip.isVisible().catch(() => false)) {
+      await skip.click();
+    } else {
+      await page.getByRole("button", { name: /^next$/i }).click();
+    }
+
+    // Step 4 — Install. The pre-flight credential panel lists the package's
+    // declared (and as-yet-unsatisfied) anthropic-oauth requirement.
+    const credPanel = page.getByTestId("package-credential-requirements");
+    await expect(credPanel).toBeVisible({ timeout: 15_000 });
+    await expect(credPanel).toContainText(/credential|anthropic/i);
+    // Install is still offered — the operator can paste the token inline.
+    await expect(page.getByTestId("install-unit-button")).toBeVisible();
   });
 });
-
-async function runCatalogFlow(
-  page: import("@playwright/test").Page,
-  opts: { packageName: string; expectedUnit: string },
-): Promise<void> {
-  await page.goto("/units/create");
-
-  // Step 1 — Source: pick Catalog.
-  await page.getByTestId("source-card-catalog").click();
-  await page.getByRole("button", { name: /^next$/i }).click();
-
-  // Step 2 — Package picker.
-  await page.getByTestId(`package-option-${opts.packageName}`).waitFor({ timeout: 30_000 });
-  await page.getByTestId(`package-option-${opts.packageName}`).click();
-  await page.getByRole("button", { name: /^next$/i }).click();
-
-  // Step 3 — Connector (skip).
-  const skip = page.getByRole("button", { name: /skip connector|don.?t bind/i }).first();
-  if (await skip.isVisible().catch(() => false)) {
-    await skip.click();
-  } else {
-    await page.getByRole("button", { name: /^next$/i }).click();
-  }
-
-  // Step 4 — Install. The wizard's `installActive` effect navigates to
-  // `/units` once the install reaches active terminal state; the
-  // transient `install-status-failed` alert can also flash mid-staging,
-  // so we wait for the URL change as the authoritative signal and only
-  // inspect the failed panel as a diagnostic when the URL never changes
-  // within the deadline.
-  await page.getByTestId("install-unit-button").click();
-  try {
-    await page.waitForURL((url) => !url.pathname.endsWith("/units/create"), {
-      timeout: 90_000,
-    });
-  } catch (err) {
-    const failed = page.getByTestId("install-status-failed");
-    if (await failed.isVisible().catch(() => false)) {
-      const errText = (await failed.innerText().catch(() => "")) || "(no error text)";
-      throw new Error(`Catalog install failed: ${errText}`);
-    }
-    throw err;
-  }
-}

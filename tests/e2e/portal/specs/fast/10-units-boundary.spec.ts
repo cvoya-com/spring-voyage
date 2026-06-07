@@ -1,7 +1,7 @@
-import { apiGet, apiPost } from "../../fixtures/api.js";
+import { apiGet, seedUnit } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Boundary tab — opacity, projection, synthesis rules + YAML upload.
@@ -18,22 +18,11 @@ interface BoundaryResponse {
 test.describe("units — boundary tab", () => {
   test("upload YAML, see diff, apply, persist", async ({ page, tracker }) => {
     const name = tracker.unit(unitName("boundary"));
-    await apiPost("/api/v1/tenant/units", {
-      name,
-      displayName: name,
-      description: "Boundary spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
-    });
+    const u = await seedUnit(name, { description: "Boundary spec (e2e-portal)" });
 
-    // Boundary moved under Config (subtab) per QUALITY-unit-config-subtabs.
+    // Boundary moved under Config (subtab) per #2254.
     // Deep-link straight to it; the explorer round-trips ?subtab=.
-    await page.goto(
-      `/units?node=${encodeURIComponent(name)}&tab=Config&subtab=Boundary`,
-    );
+    await gotoExplorerUnit(page, u.hex, { tab: "Config", subtab: "Boundary" });
     await expect(page.getByTestId("boundary-tab")).toBeVisible();
 
     // The YAML upload card has its own testid.
@@ -65,7 +54,7 @@ test.describe("units — boundary tab", () => {
 
     // Cross-check the API.
     const boundary = await apiGet<BoundaryResponse>(
-      `/api/v1/tenant/units/${encodeURIComponent(name)}/boundary`,
+      `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/boundary`,
     );
     expect(boundary).toBeDefined();
   });

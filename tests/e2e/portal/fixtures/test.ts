@@ -28,6 +28,8 @@ import {
   deleteUnit,
   isApiUp,
   isOllamaUp,
+  resolveAgentIdByDisplayName,
+  resolveUnitIdByDisplayName,
   revokeToken,
 } from "./api.js";
 
@@ -130,18 +132,24 @@ export const test = base.extend<PortalFixtures, PortalWorkerFixtures>({
     // (mirrors `e2e::cleanup_unit`'s swallow-and-log contract).
     const errors: { kind: string; name: string; error: string }[] = [];
 
-    for (const name of agents) {
+    // Units / agents are addressed by their server-assigned id (hex/UUID),
+    // not by the display-name slug the tracker holds. Resolve slug → id at
+    // cleanup time, then delete by id. A slug that no longer resolves was
+    // already deleted (or never created) — skip it silently.
+    for (const slug of agents) {
       try {
-        await deleteAgent(name);
+        const id = await resolveAgentIdByDisplayName(slug);
+        if (id) await deleteAgent(id);
       } catch (e) {
-        errors.push({ kind: "agent", name, error: String(e) });
+        errors.push({ kind: "agent", name: slug, error: String(e) });
       }
     }
-    for (const name of units) {
+    for (const slug of units) {
       try {
-        await deleteUnit(name, true);
+        const id = await resolveUnitIdByDisplayName(slug);
+        if (id) await deleteUnit(id, true);
       } catch (e) {
-        errors.push({ kind: "unit", name, error: String(e) });
+        errors.push({ kind: "unit", name: slug, error: String(e) });
       }
     }
     for (const name of secrets) {

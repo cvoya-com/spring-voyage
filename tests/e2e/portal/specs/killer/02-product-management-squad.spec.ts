@@ -1,10 +1,22 @@
+import {
+  packageInstallBlockedReason,
+  resolveUnitIdByDisplayName,
+} from "../../fixtures/api.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
- * Killer use case — product-management catalog package variant.
- * Mirror of 01-software-engineering-team.spec.ts but using the
- * product-management catalog package; both ship working out of the box
- * per the E2 plan. Replaces the deleted "Mode = Template" path (#1583).
+ * Killer use case — product-management catalog package variant. Mirror of
+ * 01-software-engineering-team.spec.ts using the product-management catalog
+ * package.
+ *
+ * PRECONDITION (credential-free environments skip): like
+ * `software-engineering`, the OSS `product-management` package pins
+ * `runtime: claude-code` (a required `anthropic-oauth` credential) AND
+ * declares a required `github` connector, so the install fails-fast (400)
+ * without both. This credential-free suite skips with the precise blocker
+ * unless the tenant already satisfies the package's requirements; the CLI
+ * suite covers the install-with-credential path.
  */
 
 test.describe("killer use case — product management squad", () => {
@@ -19,6 +31,15 @@ test.describe("killer use case — product management squad", () => {
     // The package's manifest declares the canonical unit name.
     const unit = "product-squad";
     tracker.unit(unit);
+
+    const blocked = await packageInstallBlockedReason("product-management");
+    if (blocked) {
+      test.skip(
+        true,
+        `Catalog install cannot complete credential-free: ${blocked}. ` +
+          `Provision the credential/connector (or run the CLI suite) to exercise this flow.`,
+      );
+    }
 
     await page.goto("/units/create");
     await page.getByTestId("source-card-catalog").click();
@@ -35,30 +56,21 @@ test.describe("killer use case — product management squad", () => {
       await page.getByRole("button", { name: /^next$/i }).click();
     }
 
+    // Install. Resolve the created unit's hex via the API rather than
+    // racing the wizard's lifecycle-gated redirect.
     await page.getByTestId("install-unit-button").click();
-    // The wizard's `installActive` effect navigates to `/units` once the
-    // install reaches the active terminal state. The transient
-    // `install-status-failed` alert can also flash mid-staging on the
-    // way to active, so we wait for the URL change as the authoritative
-    // signal and only inspect the failed panel as a diagnostic when
-    // the URL never changes within the deadline.
-    try {
-      await page.waitForURL((url) => !url.pathname.endsWith("/units/create"), {
+    await expect
+      .poll(async () => resolveUnitIdByDisplayName(unit), {
         timeout: 90_000,
-      });
-    } catch (err) {
-      const failed = page.getByTestId("install-status-failed");
-      if (await failed.isVisible().catch(() => false)) {
-        const errText = (await failed.innerText().catch(() => "")) || "(no error text)";
-        throw new Error(`Catalog install failed on the wizard: ${errText}`);
-      }
-      throw err;
-    }
+        intervals: [2000, 5000, 10_000],
+      })
+      .not.toBeNull();
+    const unitId = await resolveUnitIdByDisplayName(unit);
 
     // The unit's Members tab lists the seeded agents from the package.
-    // Cache invalidation between install and tab membership query can
-    // be eventually consistent; reload once if the first render is empty.
-    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Members`);
+    // Cache invalidation between install and the membership query can be
+    // eventually consistent; reload once if the first render is empty.
+    await gotoExplorerUnit(page, unitId!, { tab: "Members" });
     const membership = page.locator('[data-testid^="unit-membership-"]').first();
     try {
       await expect(membership).toBeVisible({ timeout: 30_000 });

@@ -8,9 +8,16 @@
 // we cross-check via the threads API as a stable, headless signal in
 // case the participants header testid hasn't shipped yet.
 
-import { apiGet, apiPost, apiPut } from "../../fixtures/api.js";
+import {
+  addCallerHat,
+  apiGet,
+  apiPut,
+  seedAgent,
+  seedUnit,
+  type SeededEntity,
+} from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 interface ThreadDetailResponse {
@@ -34,37 +41,47 @@ test.describe("engagement — create 1:M with multiple participants (#1455)", ()
     const unitB = tracker.unit(unitName("eng-1tom-b"));
     const agent = tracker.agent(agentName("eng-1tom-ada"));
 
+    const seededUnits: SeededEntity[] = [];
     for (const unit of [unitA, unitB]) {
-      await apiPost("/api/v1/tenant/units", {
-        name: unit,
-        displayName: unit,
+      const u = await seedUnit(unit, {
         description: "1:M engagement spec (e2e-portal)",
-        agent: AGENT_ID,
-        provider: PROVIDER_ID,
-        model: DEFAULT_MODEL,
-        hosting: "ephemeral",
-        isTopLevel: true,
       });
       await apiPut(
-        `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-        { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
+        `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/execution`,
+        {
+          image: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
+          runtime: AGENT_ID,
+          model: { provider: "ollama", id: process.env.E2E_PORTAL_OLLAMA_MODEL ?? "llama3.2:3b" },
+        },
       );
+      // Hat-reachability (#2972): grant the caller a Hat on each unit so
+      // the fan-out send doesn't 403.
+      const hat = await addCallerHat(u.hex);
+      if (hat === null) {
+        test.skip(true, "No caller Hat available to grant unit reachability.");
+      }
+      seededUnits.push(u);
     }
-    await apiPost("/api/v1/tenant/agents", {
-      name: agent,
-      displayName: "Multi-cast Spec Agent",
+    const uA = seededUnits[0]!;
+    const uB = seededUnits[1]!;
+    const a = await seedAgent(agent, {
       description: "1:M engagement spec (e2e-portal)",
-      unitIds: [unitA],
+      unitHexIds: [uA.hex],
     });
 
-    // Drive the form: pick all three participants.
+    // Drive the form: pick all three participants. The picker filters by
+    // display name (the slug) but keys rows/chips on the hex id.
     await page.goto("/engagement/new");
-    for (const id of [unitA, unitB, agent]) {
-      await page.getByTestId("engagement-new-filter").fill(id);
-      const scheme = id === agent ? "agent" : "unit";
-      await page.getByTestId(`engagement-new-pick-${scheme}-${id}`).click();
+    const picks: Array<{ slug: string; hex: string; scheme: "unit" | "agent" }> = [
+      { slug: unitA, hex: uA.hex, scheme: "unit" },
+      { slug: unitB, hex: uB.hex, scheme: "unit" },
+      { slug: agent, hex: a.hex, scheme: "agent" },
+    ];
+    for (const pick of picks) {
+      await page.getByTestId("engagement-new-filter").fill(pick.slug);
+      await page.getByTestId(`engagement-new-pick-${pick.scheme}-${pick.hex}`).click();
       await expect(
-        page.getByTestId(`engagement-new-chip-${scheme}-${id}`),
+        page.getByTestId(`engagement-new-chip-${pick.scheme}-${pick.hex}`),
       ).toBeVisible();
     }
     await page
@@ -121,9 +138,9 @@ test.describe("engagement — create 1:M with multiple participants (#1455)", ()
     // through to the user-visible outcome (the engagement detail
     // page rendering) rather than failing.
     const want = [
-      `unit://${unitA}`,
-      `unit://${unitB}`,
-      `agent://${agent}`,
+      `unit://${uA.hex}`,
+      `unit://${uB.hex}`,
+      `agent://${a.hex}`,
     ];
     const everyone = await poll(
       async () => {

@@ -44,7 +44,11 @@ trap 'e2e::cleanup_unit "${unit}"; e2e::cleanup_agent "${agent}"' EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+unit_body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "carrier unit create succeeds"
+# Canonical hex id of the carrier unit — needed to grant the caller's Hat
+# membership below (and for any raw-HTTP unit calls).
+unit_id="$(printf '%s' "${unit_body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 e2e::log "spring agent create --name ${agent} --unit ${unit}"
 response="$(e2e::cli_agent_create --output json --name "${agent}" --unit "${unit}")"
@@ -63,6 +67,14 @@ if [[ -z "${agent_id}" ]]; then
 fi
 agent_id_hex="${agent_id//-/}"
 e2e::log "agent actor id: ${agent_id} (hex ${agent_id_hex})"
+
+# #2972 (commit c3f92950): a tenant-user → agent Domain send is gated on Hat
+# reachability — the caller must wear a Hat that is a human member of a unit
+# the agent sits in. The carrier unit has no human members yet, so grant the
+# caller's own Hat owner membership on it; otherwise the POST below is
+# rejected 403 NoReachableHat before the actor (and thus MessageArrived) is
+# ever reached.
+e2e::add_caller_hat "${unit_id}"
 
 # --- Send a Domain message ---------------------------------------------------
 # Driven through raw HTTP rather than `spring message send` because the

@@ -1,7 +1,7 @@
-import { apiGet, apiPost } from "../../fixtures/api.js";
+import { apiGet, seedUnit } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Unit policy editor — five dimensions (skill / model / cost /
@@ -27,23 +27,12 @@ test.describe("units — policy roundtrip", () => {
     tracker,
   }) => {
     const name = tracker.unit(unitName("policy"));
-    await apiPost("/api/v1/tenant/units", {
-      name,
-      displayName: name,
-      description: "Policy spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
-    });
+    const u = await seedUnit(name, { description: "Policy spec (e2e-portal)" });
 
     // Land directly on the Policies tab via deep-link — the explorer
     // round-trips `?tab=` so this is the canonical way to enter a tab
     // without first hitting the Overview redirect race.
-    await page.goto(
-      `/units?node=${encodeURIComponent(name)}&tab=Policies`,
-    );
+    await gotoExplorerUnit(page, u.hex, { tab: "Policies" });
     await expect(page.getByTestId("policies-tab-effective")).toBeVisible();
 
     // Each policy panel exposes an "Edit" button inside its
@@ -97,7 +86,7 @@ test.describe("units — policy roundtrip", () => {
 
     // Cross-check: at least one of cost / executionMode / initiative is now non-null on the server.
     const policy = await apiGet<PolicyResponse>(
-      `/api/v1/tenant/units/${encodeURIComponent(name)}/policy`,
+      `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/policy`,
     );
     expect(
       Boolean(policy.cost) || Boolean(policy.executionMode) || Boolean(policy.initiative),

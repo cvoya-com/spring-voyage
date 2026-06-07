@@ -46,9 +46,10 @@ test.describe("portal shell", () => {
     await waitForShell(page);
 
     const targets: (keyof typeof NAV_PATHS)[] = [
-      "units",
+      "explorer",
       "inbox",
       "activity",
+      "conversations",
       "analytics",
       "policies",
       "connectors",

@@ -1,28 +1,29 @@
-import { apiPost } from "../../fixtures/api.js";
+import { seedUnit } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Unit detail page — every tab renders without throwing.
  *
  * The detail page lazy-loads each tab's data; this spec proves none of
  * them blow up against a freshly-created unit (no agents, no secrets,
- * no execution overrides). Boundary / Execution / Secrets are now sub-tabs
- * of Config (QUALITY-unit-config-subtabs) — exercise them via deep-links
- * so the spec is robust to layout shuffles.
+ * no execution overrides). Boundary / Execution / Secrets are sub-tabs
+ * of Config (#2254) — exercise them via deep-links so the spec is robust
+ * to layout shuffles. The historical "Agents" tab is now "Members"
+ * (#2270 / #2427).
  */
 
 const TOP_LEVEL_TABS = [
   "Overview",
-  "Agents",
+  "Members",
   "Policies",
   "Config",
 ] as const;
 
 const PANEL_TEST_IDS: Record<(typeof TOP_LEVEL_TABS)[number], string | null> = {
   Overview: null,
-  Agents: null,
+  Members: "unit-members-tab",
   Policies: "policies-tab-effective",
   Config: "tab-unit-config",
 };
@@ -39,15 +40,8 @@ test.describe("units — detail page tabs", () => {
     tracker,
   }) => {
     const name = tracker.unit(unitName("tabs"));
-    await apiPost("/api/v1/tenant/units", {
-      name,
-      displayName: name,
+    const u = await seedUnit(name, {
       description: "Detail tabs spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
     // Deep-link into each top-level tab. Clicking the TabStrip works
@@ -55,10 +49,8 @@ test.describe("units — detail page tabs", () => {
     // — going directly removes the race and keeps the spec focused on
     // "does the panel render?".
     for (const label of TOP_LEVEL_TABS) {
-      await page.goto(
-        `/units?node=${encodeURIComponent(name)}&tab=${label}`,
-      );
-      await expect(page.getByRole("heading", { name })).toBeVisible();
+      await gotoExplorerUnit(page, u.hex, { tab: label });
+      await expect(page.getByTestId("detail-title")).toContainText(name);
       const tid = PANEL_TEST_IDS[label];
       if (tid) {
         await expect(page.getByTestId(tid)).toBeVisible({ timeout: 10_000 });
@@ -71,9 +63,7 @@ test.describe("units — detail page tabs", () => {
     // Config sub-tabs round-trip via the URL. Hit each one and confirm
     // the panel renders without an alert.
     for (const sub of CONFIG_SUBTABS) {
-      await page.goto(
-        `/units?node=${encodeURIComponent(name)}&tab=Config&subtab=${sub.name}`,
-      );
+      await gotoExplorerUnit(page, u.hex, { tab: "Config", subtab: sub.name });
       if (sub.panelTestId) {
         await expect(page.getByTestId(sub.panelTestId)).toBeVisible({
           timeout: 10_000,

@@ -5,10 +5,14 @@
 // covers the multi-turn happy path against a live Ollama; here we
 // exercise the picker, the seeded-participant query string, and the
 // inline validation.
+//
+// The picker keys every row / chip on the participant's canonical hex id
+// (#2473) — `engagement-new-pick-unit-<hex>`, `…-chip-unit-<hex>` — while
+// the visible label is the unit's display name. `?participant=unit://<hex>`
+// pre-seeds by the same hex.
 
 import { unitName } from "../../fixtures/ids.js";
-import { apiPost } from "../../fixtures/api.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
+import { seedUnit } from "../../fixtures/api.js";
 import { expect, test } from "../../fixtures/test.js";
 
 test.describe("engagement — new-engagement form (#1455)", () => {
@@ -17,38 +21,31 @@ test.describe("engagement — new-engagement form (#1455)", () => {
     tracker,
   }) => {
     const unit = tracker.unit(unitName("eng-pick"));
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Engagement picker spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
     await page.goto("/engagement/new");
     await expect(page.getByTestId("engagement-new-page")).toBeVisible();
     await expect(page.getByTestId("engagement-new-form")).toBeVisible();
 
-    // Filter narrows to our unit so the picker is robust against the
-    // pre-seeded `sv-test` units / agents.
+    // Filter narrows to our unit (by display name) so the picker is robust
+    // against the pre-seeded units / agents.
     await page.getByTestId("engagement-new-filter").fill(unit);
     await expect(
-      page.getByTestId(`engagement-new-pick-unit-${unit}`),
+      page.getByTestId(`engagement-new-pick-unit-${u.hex}`),
     ).toBeVisible();
 
     // Toggle on then off.
-    await page.getByTestId(`engagement-new-pick-unit-${unit}`).click();
+    await page.getByTestId(`engagement-new-pick-unit-${u.hex}`).click();
     await expect(
-      page.getByTestId(`engagement-new-chip-unit-${unit}`),
+      page.getByTestId(`engagement-new-chip-unit-${u.hex}`),
     ).toBeVisible();
     await page
-      .getByTestId(`engagement-new-chip-remove-unit-${unit}`)
+      .getByTestId(`engagement-new-chip-remove-unit-${u.hex}`)
       .click();
     await expect(
-      page.getByTestId(`engagement-new-chip-unit-${unit}`),
+      page.getByTestId(`engagement-new-chip-unit-${u.hex}`),
     ).toHaveCount(0);
   });
 
@@ -68,20 +65,13 @@ test.describe("engagement — new-engagement form (#1455)", () => {
     tracker,
   }) => {
     const unit = tracker.unit(unitName("eng-noseed"));
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Engagement empty-message spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
     await page.goto("/engagement/new");
     await page.getByTestId("engagement-new-filter").fill(unit);
-    await page.getByTestId(`engagement-new-pick-unit-${unit}`).click();
+    await page.getByTestId(`engagement-new-pick-unit-${u.hex}`).click();
     await page.getByTestId("engagement-new-submit").click();
     await expect(page.getByTestId("engagement-new-error")).toContainText(
       /first message/i,
@@ -95,23 +85,16 @@ test.describe("engagement — pre-seeded from query string (#1456)", () => {
     tracker,
   }) => {
     const unit = tracker.unit(unitName("eng-pre"));
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Engagement pre-seeded spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
     await page.goto(
       "/engagement/new?participant=" +
-        encodeURIComponent(`unit://${unit}`),
+        encodeURIComponent(`unit://${u.hex}`),
     );
     await expect(
-      page.getByTestId(`engagement-new-chip-unit-${unit}`),
+      page.getByTestId(`engagement-new-chip-unit-${u.hex}`),
     ).toBeVisible();
   });
 
@@ -121,38 +104,20 @@ test.describe("engagement — pre-seeded from query string (#1456)", () => {
   }) => {
     const unitA = tracker.unit(unitName("eng-pre-a"));
     const unitB = tracker.unit(unitName("eng-pre-b"));
-    await apiPost("/api/v1/tenant/units", {
-      name: unitA,
-      displayName: unitA,
-      description: "A (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
-    });
-    await apiPost("/api/v1/tenant/units", {
-      name: unitB,
-      displayName: unitB,
-      description: "B (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
-    });
+    const a = await seedUnit(unitA, { description: "A (e2e-portal)" });
+    const b = await seedUnit(unitB, { description: "B (e2e-portal)" });
 
     await page.goto(
       "/engagement/new?participant=" +
-        encodeURIComponent(`unit://${unitA}`) +
+        encodeURIComponent(`unit://${a.hex}`) +
         "&participant=" +
-        encodeURIComponent(`unit://${unitB}`),
+        encodeURIComponent(`unit://${b.hex}`),
     );
     await expect(
-      page.getByTestId(`engagement-new-chip-unit-${unitA}`),
+      page.getByTestId(`engagement-new-chip-unit-${a.hex}`),
     ).toBeVisible();
     await expect(
-      page.getByTestId(`engagement-new-chip-unit-${unitB}`),
+      page.getByTestId(`engagement-new-chip-unit-${b.hex}`),
     ).toBeVisible();
   });
 
@@ -161,26 +126,19 @@ test.describe("engagement — pre-seeded from query string (#1456)", () => {
     tracker,
   }) => {
     const unit = tracker.unit(unitName("eng-pre-rm"));
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Engagement pre-seeded-remove spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
     await page.goto(
       "/engagement/new?participant=" +
-        encodeURIComponent(`unit://${unit}`),
+        encodeURIComponent(`unit://${u.hex}`),
     );
     await page
-      .getByTestId(`engagement-new-chip-remove-unit-${unit}`)
+      .getByTestId(`engagement-new-chip-remove-unit-${u.hex}`)
       .click();
     await expect(
-      page.getByTestId(`engagement-new-chip-unit-${unit}`),
+      page.getByTestId(`engagement-new-chip-unit-${u.hex}`),
     ).toHaveCount(0);
   });
 });

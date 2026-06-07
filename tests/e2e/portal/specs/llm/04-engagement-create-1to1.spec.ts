@@ -10,9 +10,14 @@
 // Skips gracefully if the human caller is recorded as Observer (the
 // permission-grant race tracked separately).
 
-import { apiPost, apiPut } from "../../fixtures/api.js";
+import {
+  addCallerHat,
+  apiPut,
+  seedAgent,
+  seedUnit,
+} from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 test.describe("engagement — create 1:1 + multi-turn (#1455)", () => {
@@ -26,33 +31,36 @@ test.describe("engagement — create 1:1 + multi-turn (#1455)", () => {
     const unit = tracker.unit(unitName("eng-1to1"));
     const agent = tracker.agent(agentName("eng-1to1-ada"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "1:1 engagement spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
     await apiPut(
-      `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
+      `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/execution`,
+      {
+        image: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
+        runtime: AGENT_ID,
+        model: { provider: "ollama", id: process.env.E2E_PORTAL_OLLAMA_MODEL ?? "llama3.2:3b" },
+      },
     );
-    await apiPost("/api/v1/tenant/agents", {
-      name: agent,
-      displayName: "1:1 Spec Agent",
+    const a = await seedAgent(agent, {
       description: "1:1 engagement spec (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
 
-    // Drive the new-engagement form.
+    // Hat-reachability (#2972): grant the caller a Hat on the unit so the
+    // engagement send doesn't 403.
+    const hat = await addCallerHat(u.hex);
+    if (hat === null) {
+      test.skip(true, "No caller Hat available to grant unit reachability.");
+    }
+
+    // Drive the new-engagement form. The picker keys rows/chips on the
+    // participant's hex id.
     await page.goto("/engagement/new");
     await page.getByTestId("engagement-new-filter").fill(agent);
-    await page.getByTestId(`engagement-new-pick-agent-${agent}`).click();
+    await page.getByTestId(`engagement-new-pick-agent-${a.hex}`).click();
     await expect(
-      page.getByTestId(`engagement-new-chip-agent-${agent}`),
+      page.getByTestId(`engagement-new-chip-agent-${a.hex}`),
     ).toBeVisible();
     await page
       .getByTestId("engagement-new-body")

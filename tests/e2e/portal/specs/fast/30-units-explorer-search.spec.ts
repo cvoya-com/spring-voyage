@@ -1,6 +1,5 @@
-import { apiPost } from "../../fixtures/api.js";
+import { seedUnit } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
@@ -15,16 +14,7 @@ test.describe("units — explorer", () => {
     const a = tracker.unit(unitName("explorer-a"));
     const b = tracker.unit(unitName("explorer-b"));
     for (const n of [a, b]) {
-      await apiPost("/api/v1/tenant/units", {
-        name: n,
-        displayName: n,
-        description: `Explorer spec (e2e-portal): ${n}`,
-        agent: AGENT_ID,
-        provider: PROVIDER_ID,
-        model: DEFAULT_MODEL,
-        hosting: "ephemeral",
-        isTopLevel: true,
-      });
+      await seedUnit(n, { description: `Explorer spec (e2e-portal): ${n}` });
     }
 
     await page.goto("/units");

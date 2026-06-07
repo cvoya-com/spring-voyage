@@ -236,6 +236,59 @@ e2e::cleanup_agent() {
     return "${rc}"
 }
 
+# e2e::add_caller_hat UNIT — make the calling caller able to message agents in
+# UNIT (a unit canonical hex id or Guid) under the tenant-user → unit/agent
+# reachability gate (#2972, commit c3f92950).
+#
+# Since that gate landed, a tenant-user may only address a unit/agent for which
+# they wear a Hat (a bound human://) that is a direct *team* member of a unit
+# the target sits in or under. A freshly-created test unit has no human
+# members, so a bare `POST /messages` (or `spring message send`) to an agent in
+# it is rejected 403 NoReachableHat. Call this after creating the carrier unit
+# (and its agent) and before the first send.
+#
+# Two human surfaces matter here, and they are NOT the same:
+#   * `spring unit humans add <unit> <name>` grants an ACL *permission* and, in
+#     the OSS single-tenant-user deployment, mints a human bound to the calling
+#     TenantUser — but it does NOT write the `unit_memberships_humans` *team*
+#     row the reachability gate reads.
+#   * `POST /units/{id}/members/humans` writes that team row.
+# So this helper resolves (or mints) a caller-bound Hat, then adds it as a team
+# member. The caller's Hat set can be empty on a fresh tenant (a Hat is created
+# lazily, and #2972 GCs orphaned ones), hence the mint-when-empty fallback.
+#
+# humanId is parsed with grep/sed (no jq dependency) to match the rest of the
+# suite. The HTTP read/write goes through e2e::http; the mint goes through the
+# CLI so the username→caller-Hat binding uses the same resolver the product does.
+e2e::add_caller_hat() {
+    local unit="$1"
+    local resp body hat status
+    # 1. Mint (or resolve) a caller-bound Hat by granting it unit ACL access.
+    #    In OSS `unit humans add` binds the human to the calling TenantUser, so
+    #    the result is one of the caller's Hats. Crucially this does NOT read
+    #    the pre-existing /me/humans set: that set can be emptied at any moment
+    #    by #2972's orphaned-Hat GC, so a read-then-add races (the read returns
+    #    a Hat the GC reclaims before the team-add POST lands → 404). Minting
+    #    anchors the Hat to this unit first, closing that window.
+    resp="$(e2e::cli --output json unit humans add "${unit}" e2e-caller-hat --permission owner)"
+    body="${resp%$'\n'*}"
+    hat="$(printf '%s' "${body}" | grep -o '"humanId":[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*"humanId":[[:space:]]*"([^"]+)".*/\1/')"
+    if [[ -z "${hat}" ]]; then
+        e2e::fail "add_caller_hat: could not mint the caller's Hat on unit ${unit}: ${body:0:200}"
+        return 1
+    fi
+    # 2. Add that Hat as a TEAM member — the unit_memberships_humans table the
+    #    reachability gate reads. The step-1 ACL grant alone is not a team row.
+    resp="$(e2e::http POST "/api/v1/tenant/units/${unit}/members/humans" "{\"humanId\":\"${hat}\",\"roles\":[\"owner\"]}")"
+    status="${resp##*$'\n'}"
+    if [[ "${status}" == "200" ]]; then
+        e2e::log "add_caller_hat: caller Hat ${hat} is now a team member of unit ${unit}"
+        return 0
+    fi
+    e2e::fail "add_caller_hat: failed to add Hat team membership on unit ${unit} (status ${status}): ${resp%$'\n'*}"
+    return 1
+}
+
 # e2e::require_ollama — pings the configured local LLM endpoint. Returns 0 when
 # Ollama is reachable, 1 otherwise. Scenarios that need an LLM call this first
 # and skip (not fail) when it's down, so the base scenario set stays green on

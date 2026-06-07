@@ -3,8 +3,11 @@
 # Install the spring-voyage-oss package — the built-in dogfooding unit
 # that stands up the OSS organisation developing the Spring Voyage
 # platform on itself. Asserts that the install completes (active state)
-# and that the two sub-units (software-engineering, program-management)
-# plus the umbrella organisation unit appear via the units list.
+# and that the single "Spring Voyage OSS" unit appears via the units list
+# with its template-instantiated agent members wired. The package was
+# flattened from sub-units to one unit + inline template agents (#2525),
+# so this scenario no longer expects "Software Engineering" /
+# "Program Management" sub-units.
 #
 # Inputs are required by the package manifest; we pass placeholder
 # values that satisfy validation without touching real GitHub state —
@@ -14,30 +17,20 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${HERE}/../../_lib.sh"
 
-# Friendly displayNames declared by the OSS package YAMLs via the
-# top-level `displayName:` manifest slot. The CLI's `unit list` table
-# column collapses to displayName-when-present (falling back to the
-# slug `name:`), so these are the strings the operator actually sees on
-# the API wire and at the table column.
-#
-# HAND-OFF (parallel restructure in flight): these strings mirror the
-# `displayName:` values declared in
-#   packages/spring-voyage-oss/units/<slug>/package.yaml
-# A separate restructure of the OSS package YAMLs is filling those in.
-# Keep this list and the YAMLs aligned: if the OSS package ships a
-# different friendly label, update both together. The platform install
-# pipeline carries each manifest's `displayName:` through to the unit's
-# persisted DisplayName when no per-target operator override is
-# supplied.
+# The OSS package ships a single unit whose displayName is the string
+# below. The CLI's `unit list` table column collapses to
+# displayName-when-present (falling back to the slug `name:`), so this is
+# the string the operator sees on the API wire and at the table column.
+# Keep it aligned with `displayName:` in
+#   packages/spring-voyage-oss/units/spring-voyage-oss/package.yaml.
 parent_unit="Spring Voyage OSS"
-sub_units=(
-    "Software Engineering"
-    "Program Management"
+# A couple of the unit's template-instantiated agent members (displayName
+# per the package's `members:` block). Spot-checked via `agent list` to
+# prove the activator wired the inline template agents.
+expected_agents=(
+    "Ada (engineer)"
+    "Drucker (PM)"
 )
-# Friendly displayName used by the engineering sub-unit's members-list
-# assertion below; the CLI's CliResolver matches on display name when no
-# Guid hit is found.
-engineering_unit="Software Engineering"
 
 # Force-delete every unit whose displayName matches `target` (and the agents
 # attached to it) via direct HTTP. The CLI cascade `unit purge` cannot
@@ -81,8 +74,6 @@ for u in arr:
 }
 
 cleanup() {
-    # Sub-units first so the parent's cascade-on-purge doesn't race with us.
-    for u in "${sub_units[@]}"; do _force_cleanup_unit "${u}"; done
     _force_cleanup_unit "${parent_unit}"
 }
 # Run cleanup up-front too so a leftover install from a prior run doesn't
@@ -99,9 +90,15 @@ trap cleanup EXIT
 # The OSS package declares a required `github` connector; a stub binding is
 # sufficient for the install pipeline because the dispatcher only contacts
 # GitHub when a unit is actually started (out of scope for the fast pool).
-e2e::log "spring package install spring-voyage-oss --connector github=acme/demo@1 --input github_owner=acme --input github_repo=demo --input github_installation_id=999"
+# The OSS package's agents pin the claude-code runtime (provider: anthropic),
+# and install now fail-fasts when the required LLM credential is absent. Supply
+# a dummy oauth token via --secret so the install completes — one provider slot
+# covers every claude-code agent in the package. Validity is only checked at
+# agent turn time (out of scope for this install/units-list scenario).
+e2e::log "spring package install spring-voyage-oss --connector github=acme/demo@1 --secret anthropic:oauth=*** --input github_owner=acme --input github_repo=demo --input github_installation_id=999"
 response="$(e2e::cli --output json package install spring-voyage-oss \
     --connector "github=acme/demo@1" \
+    --secret "anthropic:oauth=sk-ant-oat-e2e-dummy" \
     --input github_owner=acme \
     --input github_repo=demo \
     --input github_installation_id=999)"
@@ -116,30 +113,39 @@ fi
 e2e::expect_status "0" "${code}" "spring-voyage-oss package install succeeds"
 e2e::expect_contains '"status": "active"' "${body}" "install reaches active aggregate status"
 
-# --- Verify the parent + sub-units exist via unit list ----------------------
+# --- Verify the single OSS unit exists via unit list ------------------------
 e2e::log "spring unit list --output json"
 response="$(e2e::cli --output json unit list)"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit list succeeds after install"
-e2e::expect_contains "\"${parent_unit}\"" "${body}" "unit list includes the parent OSS unit"
-for u in "${sub_units[@]}"; do
-    e2e::expect_contains "\"${u}\"" "${body}" "unit list includes sub-unit ${u}"
-done
+e2e::expect_contains "\"${parent_unit}\"" "${body}" "unit list includes the OSS unit"
 
-# --- Spot-check one sub-unit's members --------------------------------------
-# The engineering team is the largest sub-unit — verify it has at least one
-# membership row so we know the activator wired members + agents correctly.
-e2e::log "spring unit members list '${engineering_unit}' --output json"
-response="$(e2e::cli --output json unit members list "${engineering_unit}")"
+# --- Verify the OSS unit's template agents were wired -----------------------
+# The flattened package declares its agent members inline (from templates);
+# the unit must carry at least that many agent membership rows. The
+# members-list `member` field is the canonical `agent:<hex>`; count those
+# (the lone human member carries a `human://` member and a null agentAddress).
+e2e::log "spring unit members list '${parent_unit}' --output json"
+response="$(e2e::cli --output json unit members list "${parent_unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
-e2e::expect_status "0" "${code}" "engineering sub-unit members list succeeds"
-member_count="$(printf '%s' "${body}" | grep -o '"agentAddress"' | wc -l | tr -d '[:space:]')"
-if (( member_count >= 1 )); then
-    e2e::ok "engineering sub-unit has ${member_count} member(s)"
+e2e::expect_status "0" "${code}" "OSS unit members list succeeds"
+agent_member_count="$(printf '%s' "${body}" | grep -oE '"member":[[:space:]]*"agent:[0-9a-f]{32}"' | wc -l | tr -d '[:space:]')"
+if (( agent_member_count >= 7 )); then
+    e2e::ok "OSS unit has ${agent_member_count} agent member(s)"
 else
-    e2e::fail "engineering sub-unit has no members — activator did not register agents"
+    e2e::fail "OSS unit has only ${agent_member_count} agent member(s) — activator did not wire the template agents"
 fi
+
+# --- Spot-check the template agents are registered in the directory ---------
+e2e::log "spring agent list --output json"
+response="$(e2e::cli --output json agent list)"
+code="${response##*$'\n'}"
+body="${response%$'\n'*}"
+e2e::expect_status "0" "${code}" "agent list succeeds after install"
+for a in "${expected_agents[@]}"; do
+    e2e::expect_contains "${a}" "${body}" "agent list includes template agent '${a}'"
+done
 
 e2e::summary

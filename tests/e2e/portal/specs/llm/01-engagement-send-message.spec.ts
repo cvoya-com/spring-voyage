@@ -1,6 +1,12 @@
-import { apiPost, apiPut } from "../../fixtures/api.js";
+import {
+  addCallerHat,
+  apiPost,
+  apiPut,
+  seedAgent,
+  seedUnit,
+} from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
@@ -30,36 +36,42 @@ test.describe("engagement — send message via composer", () => {
     const unit = tracker.unit(unitName("eng-msg"));
     const agent = tracker.agent(agentName("eng-msg-ada"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Engagement send-message spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
     // Set image + runtime defaults so ephemeral agent dispatch picks
     // up a working container image (otherwise the dispatch fails with
     // "Ephemeral agent requires a container image"). image/runtime
-    // aren't on `CreateUnitRequest`; they live on `/execution`.
+    // aren't on `CreateUnitRequest`; they live on `/execution` (keyed on
+    // the hex). The runtime is the agent runtime id (`spring-voyage`), not
+    // the container backend.
     await apiPut(
-      `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
+      `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/execution`,
+      {
+        image: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
+        runtime: AGENT_ID,
+        model: { provider: "ollama", id: process.env.E2E_PORTAL_OLLAMA_MODEL ?? "llama3.2:3b" },
+      },
     );
-    await apiPost("/api/v1/tenant/agents", {
-      name: agent,
-      displayName: "Engagement Spec Agent",
+    const a = await seedAgent(agent, {
       description: "Engagement send-message spec (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
+
+    // Hat-reachability (#2972): a fresh unit has no human members, so a
+    // send to its agent 403s `NoReachableHat`. Add the caller's Hat as a
+    // team member so the API + UI sends are reachable.
+    const hat = await addCallerHat(u.hex);
+    if (hat === null) {
+      test.skip(true, "No caller Hat available to grant unit reachability.");
+    }
 
     // Kick off a thread by sending a free-form message via /messages.
     // The endpoint auto-generates a thread id when none is supplied.
     // Wire shape (`SendMessageRequest`): { to, type, payload, threadId? }.
+    // Addresses key on the agent's hex id (#2473).
     const seed = await apiPost<MessageResponse>("/api/v1/tenant/messages", {
-      to: { scheme: "agent", path: agent },
+      to: { scheme: "agent", path: a.hex },
       type: "Domain",
       payload: { text: "Hello from e2e-portal" },
     });

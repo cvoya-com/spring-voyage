@@ -33,20 +33,25 @@ template_unit="engineering-team"
 # next install. Direct DELETE the agents and the unit instead. Best-effort —
 # a clean tenant simply 404s on the show below.
 _pretemplate_cleanup() {
-    local show memberships agent_id unit_hex
-    show="$(e2e::cli unit show "${template_unit}" --output json 2>/dev/null)"
-    show="${show%$'\n'*}"
-    unit_hex="$(printf '%s' "${show}" | awk -F'"' '/"name":/ { print $4; exit }')"
-    if [[ -z "${unit_hex}" || "${unit_hex}" == "${template_unit}" ]]; then return 0; fi
-    memberships="$(e2e::http GET "/api/v1/tenant/units/${unit_hex}/memberships" 2>/dev/null || true)"
-    memberships="${memberships%$'\n'*}"
-    # Each membership row carries the agent id under `member` as `agent:<hex>`.
-    # Deleting the agent cascades its memberships away.
-    while IFS= read -r agent_id; do
-        [[ -z "${agent_id}" ]] && continue
-        e2e::http DELETE "/api/v1/tenant/agents/${agent_id}" >/dev/null 2>&1 || true
-    done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | awk -F'[:"]' '{print $5}')
-    e2e::http DELETE "/api/v1/tenant/units/${unit_hex}" >/dev/null 2>&1 || true
+    local units_body unit_hex memberships agent_id
+    units_body="$(e2e::http GET "/api/v1/tenant/units" 2>/dev/null || true)"
+    units_body="${units_body%$'\n'*}"
+    # Delete EVERY unit whose displayName is the package's slug. A prior run
+    # that failed mid-way leaves the unit behind, and once TWO exist `unit
+    # show engineering-team` errors "Multiple units match", defeating a
+    # single-resolve cleanup (the old form). Each membership row carries the
+    # agent id under `member` as `agent:<hex>`; force-delete the agents
+    # (cascading their memberships) then the unit itself.
+    while IFS= read -r unit_hex; do
+        [[ -z "${unit_hex}" ]] && continue
+        memberships="$(e2e::http GET "/api/v1/tenant/units/${unit_hex}/memberships" 2>/dev/null || true)"
+        memberships="${memberships%$'\n'*}"
+        while IFS= read -r agent_id; do
+            [[ -z "${agent_id}" ]] && continue
+            e2e::http DELETE "/api/v1/tenant/agents/${agent_id}" >/dev/null 2>&1 || true
+        done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | awk -F'[:"]' '{print $5}')
+        e2e::http DELETE "/api/v1/tenant/units/${unit_hex}?force=true" >/dev/null 2>&1 || true
+    done < <(printf '%s' "${units_body}" | jq -r --arg n "${template_unit}" '.[] | select(.displayName==$n) | .name' 2>/dev/null)
 }
 _pretemplate_cleanup
 
@@ -66,8 +71,12 @@ e2e::expect_contains 'software-engineering' "${body}" "software-engineering pack
 # engineering-team unit + tech-lead / backend-engineer / qa-engineer.
 # Pass a stub github connector binding to satisfy the package's required
 # connector declaration (real GitHub I/O is not exercised in the fast pool).
-e2e::log "spring package install software-engineering --connector github=acme/repo@1"
-response="$(e2e::cli --output json package install software-engineering --connector "github=acme/repo@1")"
+# The package's agents pin the claude-code runtime (provider: anthropic), and
+# install now fail-fasts when the required LLM credential is absent. Supply a
+# dummy oauth token via --secret so the install completes — validity is only
+# checked at agent turn time, which this CRUD/membership scenario never reaches.
+e2e::log "spring package install software-engineering --connector github=acme/repo@1 --secret anthropic:oauth=***"
+response="$(e2e::cli --output json package install software-engineering --connector "github=acme/repo@1" --secret "anthropic:oauth=sk-ant-oat-e2e-dummy")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 if [[ "${code}" == "0" ]]; then
@@ -84,9 +93,18 @@ else
 fi
 e2e::expect_contains '"status"' "${body}" "install response carries a status field"
 
+# Resolve a unit/agent's canonical hex id from `<verb> show <ref>`. Uses jq on
+# the top-level `.name`: the show JSON now embeds an `effectiveTools[]` array
+# whose nested `name` fields broke the previous positional `awk '/"name":/'`
+# extraction (it grabbed a tool name like `github.describe_inbound_contract`).
+_show_hex() { # $1=unit|agent  $2=ref
+    local r; r="$(e2e::cli --output json "$1" show "$2")"
+    printf '%s' "${r%$'\n'*}" | jq -r '.name // empty'
+}
+
 # Capture the canonical hex id of the installed unit — required for raw HTTP
 # calls below; passing the human name in URL path params now returns 400/500.
-unit_id="$(e2e::cli unit show "${template_unit}" --output json | awk -F'"' '/"name":/ { print $4; exit }')"
+unit_id="$(_show_hex unit "${template_unit}")"
 if [[ -z "${unit_id}" ]]; then
     e2e::fail "could not resolve canonical id for ${template_unit}"
     e2e::summary
@@ -96,9 +114,9 @@ e2e::log "resolved ${template_unit} -> ${unit_id}"
 
 # Capture each installed agent's hex id from the directory; the CLI's
 # members-list response carries hex ids in `agentAddress`, not the slug.
-tech_lead_id="$(e2e::cli agent show tech-lead --output json | awk -F'"' '/"name":/ { print $4; exit }')"
-backend_id="$(e2e::cli agent show backend-engineer --output json | awk -F'"' '/"name":/ { print $4; exit }')"
-qa_id="$(e2e::cli agent show qa-engineer --output json | awk -F'"' '/"name":/ { print $4; exit }')"
+tech_lead_id="$(_show_hex agent tech-lead)"
+backend_id="$(_show_hex agent backend-engineer)"
+qa_id="$(_show_hex agent qa-engineer)"
 
 # --- Verify membership is visible across all three read paths (#340) ---------
 
