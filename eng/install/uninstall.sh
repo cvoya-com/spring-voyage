@@ -2,20 +2,23 @@
 # Spring Voyage — uninstall counterpart to install.sh (ADR-0042).
 #
 # Default mode: tear the stack down, remove install-root assets owned by
-#   install.sh, and PRESERVE operator data (spring.env, host state,
-#   workspaces). The default-mode contract is "you keep your data."
+#   install.sh (releases/, current, the deployment/ runtime cache, and the
+#   CLI/wrapper symlinks), and PRESERVE operator data (spring.env, host
+#   state, workspaces). The default-mode contract is "you keep your data."
 #
-# --purge: factory reset. Also remove spring.env, host state, and
-#   workspaces. The default mode + --purge are documented at install
-#   time so an operator never destroys data accidentally.
+# --purge: factory reset. Also remove spring.env, host state, workspaces,
+#   and the `spring` CLI config at ~/.spring/config.json. The default mode +
+#   --purge are documented at install time so an operator never destroys
+#   data accidentally.
 #
 # Usage:
 #   uninstall.sh [--purge] [--yes] [--force]
 #   voyage uninstall [--purge] [--yes] [--force]
 #
 # Options:
-#   --purge   Also remove spring.env, ~/.spring-voyage/host/, and
-#             ~/.spring-voyage/workspaces/. Default mode preserves them.
+#   --purge   Also remove spring.env, ~/.spring-voyage/host/,
+#             ~/.spring-voyage/workspaces/, and ~/.spring/config.json.
+#             Default mode preserves them.
 #   --yes     Skip the interactive confirmation prompt.
 #   --force   Tear down even if `deploy.sh` reports running containers
 #             (the default mode refuses to proceed in that case).
@@ -31,6 +34,13 @@ set -euo pipefail
 INSTALL_ROOT="${SPRING_VOYAGE_HOME:-${HOME}/.spring-voyage}"
 BIN_DIR="${SPRING_VOYAGE_BIN_DIR:-${HOME}/.local/bin}"
 SPRING_ENV_FILE="${SPRING_ENV_FILE:-${INSTALL_ROOT}/spring.env}"
+# The `spring` CLI keeps its connection settings (API endpoint + any stored
+# auth token) in ~/.spring/config.json — a DIFFERENT root than INSTALL_ROOT
+# (~/.spring-voyage). install.sh writes it (`spring config set endpoint`), so
+# uninstall owns cleaning it. It can hold a token, so it is purge-only data
+# (factory reset), like spring.env. Mirrors CliConfig.DefaultConfigFilePath.
+SPRING_CLI_DIR="${HOME}/.spring"
+SPRING_CLI_CONFIG_FILE="${SPRING_CLI_CONFIG_FILE:-${SPRING_CLI_DIR}/config.json}"
 
 PURGE=0
 ASSUME_YES=0
@@ -59,12 +69,14 @@ Usage:
 
 Default mode (preserves operator data):
   - Stops containers (deploy.sh down + clean).
-  - Removes ~/.spring-voyage/releases/, ~/.spring-voyage/current.
+  - Removes ~/.spring-voyage/releases/, ~/.spring-voyage/current,
+    ~/.spring-voyage/deployment/ (regenerated runtime cache).
   - Removes ~/.local/bin/spring and ~/.local/bin/voyage.
   - PRESERVES: spring.env, ~/.spring-voyage/host/, ~/.spring-voyage/workspaces/.
 
 --purge:
-  - All of the above + removes spring.env, host/, workspaces/.
+  - All of the above + removes spring.env, host/, workspaces/,
+    and ~/.spring/config.json (the spring CLI's stored endpoint/token).
   - Factory reset.
 
 --yes:     Skip confirmation prompt.
@@ -107,21 +119,25 @@ if [[ "$PURGE" -eq 1 ]]; then
   info "  - Containers, volumes, networks, images (via deploy.sh clean)"
   info "  - ${INSTALL_ROOT}/releases/"
   info "  - ${INSTALL_ROOT}/current"
+  info "  - ${INSTALL_ROOT}/deployment/"
   info "  - ${BIN_DIR}/spring, ${BIN_DIR}/voyage"
   info "  - ${SPRING_ENV_FILE}"
   info "  - ${INSTALL_ROOT}/host/"
   info "  - ${INSTALL_ROOT}/workspaces/"
+  info "  - ${SPRING_CLI_CONFIG_FILE}"
 else
   info "Mode: default (preserves operator data)"
   info "Will remove:"
   info "  - Containers, volumes, networks, images (via deploy.sh clean)"
   info "  - ${INSTALL_ROOT}/releases/"
   info "  - ${INSTALL_ROOT}/current"
+  info "  - ${INSTALL_ROOT}/deployment/"
   info "  - ${BIN_DIR}/spring, ${BIN_DIR}/voyage"
   info "Will PRESERVE:"
   info "  - ${SPRING_ENV_FILE}"
   info "  - ${INSTALL_ROOT}/host/"
   info "  - ${INSTALL_ROOT}/workspaces/"
+  info "  - ${SPRING_CLI_CONFIG_FILE}"
 fi
 
 if [[ "$ASSUME_YES" -eq 0 ]]; then
@@ -217,6 +233,11 @@ rm_path() {
 
 rm_path "${INSTALL_ROOT}/releases" "releases"
 rm_path "${INSTALL_ROOT}/current"  "current"
+# deployment/ holds the regenerated local-ollama Dapr components cache
+# (DEPLOY_STATE_DIR in deploy.sh) — install/runtime-managed, not operator
+# data, and recreated on the next `deploy.sh up`. Remove it in default mode
+# too; previously it lingered after a non-purge uninstall (#2938).
+rm_path "${INSTALL_ROOT}/deployment" "deployment cache"
 rm_path "${BIN_DIR}/spring"        "spring binary"
 rm_path "${BIN_DIR}/voyage" "voyage wrapper"
 
@@ -228,15 +249,26 @@ if [[ "$PURGE" -eq 1 ]]; then
   rm_path "${SPRING_ENV_FILE}"        "spring.env"
   rm_path "${INSTALL_ROOT}/host"      "host state"
   rm_path "${INSTALL_ROOT}/workspaces" "workspaces"
-  # Also remove ~/.spring-voyage/deployment (local-ollama profile) and
-  # the install root if it ends up empty.
-  rm_path "${INSTALL_ROOT}/deployment" "deployment cache"
+  # The spring CLI's config (endpoint + any stored auth token), under the
+  # separate ~/.spring root. install.sh creates it; clean it on factory
+  # reset (#2938).
+  rm_path "${SPRING_CLI_CONFIG_FILE}" "spring CLI config"
 
   # Remove install root itself if empty.
   if [[ -d "${INSTALL_ROOT}" ]]; then
     if ! find "${INSTALL_ROOT}" -mindepth 1 -print -quit | grep -q .; then
       if rmdir "${INSTALL_ROOT}" 2>/dev/null; then
         ok "removed empty install root ${INSTALL_ROOT}"
+      fi
+    fi
+  fi
+
+  # Remove the ~/.spring CLI-config dir if it ends up empty (it usually holds
+  # only config.json). Leave it alone if the operator put other files there.
+  if [[ -d "${SPRING_CLI_DIR}" ]]; then
+    if ! find "${SPRING_CLI_DIR}" -mindepth 1 -print -quit | grep -q .; then
+      if rmdir "${SPRING_CLI_DIR}" 2>/dev/null; then
+        ok "removed empty CLI config dir ${SPRING_CLI_DIR}"
       fi
     fi
   fi
@@ -249,9 +281,29 @@ header "Uninstall complete"
 if [[ "$PURGE" -eq 1 ]]; then
   printf '\n  Factory reset complete. Nothing of Spring Voyage remains under %s.\n\n' "${INSTALL_ROOT}"
 else
-  printf '\n  Default uninstall complete. The following operator data was preserved:\n\n'
-  [[ -f "${SPRING_ENV_FILE}" ]]            && printf '    %s\n' "${SPRING_ENV_FILE}"
-  [[ -d "${INSTALL_ROOT}/host" ]]          && printf '    %s\n' "${INSTALL_ROOT}/host/"
-  [[ -d "${INSTALL_ROOT}/workspaces" ]]    && printf '    %s\n' "${INSTALL_ROOT}/workspaces/"
-  printf '\n  To remove these too, re-run with --purge.\n\n'
+  # Collect exactly what survived a default uninstall so the hint lists only
+  # real leftovers. Note `voyage`/`spring` were just removed from PATH (above),
+  # so a "re-run with --purge" hint via `voyage uninstall` would not resolve
+  # (#2938) — print copy-pasteable `rm` commands for precisely these paths
+  # instead.
+  preserved=()
+  [[ -f "${SPRING_ENV_FILE}" ]]         && preserved+=("${SPRING_ENV_FILE}")
+  [[ -d "${INSTALL_ROOT}/host" ]]       && preserved+=("${INSTALL_ROOT}/host")
+  [[ -d "${INSTALL_ROOT}/workspaces" ]] && preserved+=("${INSTALL_ROOT}/workspaces")
+  [[ -f "${SPRING_CLI_CONFIG_FILE}" ]]  && preserved+=("${SPRING_CLI_CONFIG_FILE}")
+
+  if [[ ${#preserved[@]} -eq 0 ]]; then
+    printf '\n  Default uninstall complete. No preserved operator data remains.\n\n'
+  else
+    printf '\n  Default uninstall complete. The following operator data was preserved:\n\n'
+    for p in "${preserved[@]}"; do
+      printf '    %s\n' "${p}"
+    done
+    printf '\n  To remove these too, run (the voyage/spring CLIs are now gone, so\n'
+    printf '  use rm directly):\n\n'
+    for p in "${preserved[@]}"; do
+      printf '    rm -rf %s\n' "${p}"
+    done
+    printf '\n'
+  fi
 fi

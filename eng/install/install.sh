@@ -875,9 +875,11 @@ fi
 # from the hostname and reuse it everywhere (env, redirect, webhook, summary).
 #
 # Include the host-published port in the authority when it is not the scheme
-# default (80/443) so the URLs resolve on a port-remapped install. Both URLs are
-# handed to `spring github-app register` below so the GitHub App's webhook URL
-# and callback_urls point at THIS deployment — not the CLI's localhost:5000
+# default (80/443) so the URLs resolve on a port-remapped install. REDIRECT_URI
+# is written to spring.env as GitHub__OAuth__RedirectUri (below) and both URLs
+# are surfaced in the post-install summary's `spring github-app register`
+# pointer, so when the operator runs that CLI command the GitHub App's webhook
+# URL and callback_urls point at THIS deployment — not the CLI's localhost:5000
 # default — and callback_urls matches GitHub__OAuth__RedirectUri exactly (GitHub
 # validates the OAuth redirect_uri against it byte-for-byte).
 # TLS decision (ADR-0068). A loopback host never gets TLS (no public cert;
@@ -1001,58 +1003,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Optional: GitHub App manifest flow
+# GitHub connector
 # ---------------------------------------------------------------------------
-GITHUB_APP_PROMPTED=0
-GITHUB_APP_CONFIGURED=0
-if [[ "$STACK_STARTED" -eq 1 && "$ASSUME_YES" -eq 0 ]]; then
-  header "GitHub connector (optional)"
-  info "The GitHub connector has two auth paths — registering an App is optional:"
-  info "  • GitHub App — for repositories you OWN/operate (bot identity + webhooks)."
-  info "                 The CLI can register it now with a single browser click."
-  info "  • PAT        — for contributing to a repository you do NOT own (e.g. an"
-  info "                 open-source project). No App, no OAuth: you create a token"
-  info "                 later. This is the simplest setup."
-  info "Skip if you'll use a PAT (or are just trying things out); you can register an"
-  info "App anytime with \`spring github-app register\`."
-  printf '  %sRegister a GitHub App now?%s [y/N]: ' "${BOLD}" "${NC}" >&2
-  if [[ -t 0 ]]; then
-    IFS= read -r answer || answer=""
-  elif [[ -r /dev/tty ]]; then
-    IFS= read -r answer </dev/tty || answer=""
-  else
-    answer=""
-  fi
-  GITHUB_APP_PROMPTED=1
-  case "${answer:-N}" in
-    [Yy]|[Yy][Ee][Ss])
-      info "Running: spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
-      if "${BIN_DIR}/spring" github-app register \
-            --name "${DEFAULT_APP_NAME}" \
-            --webhook-url "${WEBHOOK_URL}" \
-            --oauth-callback-url "${REDIRECT_URI}" \
-            --env-path "${SPRING_ENV_FILE}" \
-            --write-env; then
-        GITHUB_APP_CONFIGURED=1
-        ok "GitHub App registered; credentials written to ${SPRING_ENV_FILE}"
-        info "Restarting the stack to pick up the new credentials..."
-        if SPRING_ENV_FILE="${SPRING_ENV_FILE}" "${DEPLOY_SH}" restart; then
-          ok "Stack restarted"
-        else
-          warn "deploy.sh restart returned non-zero; run it manually after inspecting logs."
-        fi
-      else
-        warn "spring github-app register failed or timed out."
-        info "Re-run later:"
-        info "  spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
-      fi
-      ;;
-    *)
-      info "No GitHub App registered. Connect GitHub when ready — see the two options"
-      info "(PAT for repos you don't own; App for repos you do) in the summary below."
-      ;;
-  esac
-fi
+# The installer does not register a GitHub App (#2967). The `spring` CLI owns
+# the full registration flow end-to-end — `spring github-app register` drives
+# the GitHub manifest handshake and runs its own loopback callback listener
+# (GitHubAppCommand + CallbackListener) — so there is no reason to prompt for,
+# or duplicate, that flow here. The post-install summary below points the
+# operator at the CLI command for repos they own, and at the PAT path for
+# repos they don't.
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -1123,8 +1082,7 @@ if [[ "$PATH_WARNING_NEEDED" -eq 1 ]]; then
   warn "Don't forget to add ${BIN_DIR} to your PATH (see the export line above)."
 fi
 
-if [[ "$GITHUB_APP_PROMPTED" -eq 0 || "$GITHUB_APP_CONFIGURED" -eq 0 ]]; then
-  cat <<EOF
+cat <<EOF
   Next: connect GitHub (optional — pick the path that fits)
     • Contribute to a repo you DON'T own — use a PAT (no App, no OAuth):
         spring secret create --scope tenant github-pat --value 'ghp_...'
@@ -1135,7 +1093,6 @@ if [[ "$GITHUB_APP_PROMPTED" -eq 0 || "$GITHUB_APP_CONFIGURED" -eq 0 ]]; then
     Which to use: https://github.com/${REPO_OWNER}/${REPO_NAME}/blob/main/docs/guide/operator/github-connector-auth.md
 
 EOF
-fi
 
 cat <<EOF
   Next: configure LLM provider credentials

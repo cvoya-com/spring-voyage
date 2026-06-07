@@ -60,6 +60,19 @@ jobs:
             fi
           done
 
+      # deploy.sh runs as the non-root `runner` user (rootless Podman). Caddy
+      # publishes 80/443, but a default GitHub-hosted runner keeps the kernel's
+      # unprivileged-port floor at 1024, so deploy.sh's preflight_up fails fast
+      # ("rootless Podman cannot bind Caddy host ports 80/443"). Lower the floor
+      # to 80 up front — this is exactly option A from deploy.sh's own guidance
+      # and lets the Tier-2 smoke exercise the real privileged-port bring-up an
+      # operator runs, rather than a non-default high-port config. See #2926.
+      - name: Allow rootless binds to 80/443
+        shell: bash
+        run: |
+          echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-spring-voyage.conf
+          sudo sysctl --system
+
       - name: Bring the stack up via deploy.sh
         shell: bash
         run: |
