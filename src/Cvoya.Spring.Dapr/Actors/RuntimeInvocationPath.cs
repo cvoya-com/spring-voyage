@@ -147,7 +147,8 @@ public class RuntimeInvocationPath(
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
         CancellationToken ct,
-        IReadOnlyList<Message>? batch = null)
+        IReadOnlyList<Message>? batch = null,
+        string? costAttributionAgentId = null)
     {
         return dispatchCoordinator.RunDispatchAsync(
             agentId: subject.Path,
@@ -156,7 +157,8 @@ public class RuntimeInvocationPath(
             emitActivity: emitActivity,
             onDispatchExit: onDispatchExit,
             cancellationToken: ct,
-            batch: batch);
+            batch: batch,
+            costAttributionAgentId: costAttributionAgentId);
     }
 
     /// <inheritdoc />

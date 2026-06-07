@@ -126,6 +126,14 @@ public interface IAgentDispatchCoordinator
     /// single-element list) means a one-message turn — identical to the
     /// pre-#3056 behaviour.
     /// </param>
+    /// <param name="costAttributionAgentId">
+    /// The agent id the turn's cost should bill against, when it differs from
+    /// <paramref name="agentId"/> (issue #3075). For an ephemeral clone, the
+    /// actor passes the parent agent id so the clone's spend rolls up to the
+    /// parent's cost rollup rather than being stranded under the short-lived
+    /// clone id. <c>null</c> (the common case) bills the dispatching agent
+    /// itself.
+    /// </param>
     Task RunDispatchAsync(
         string agentId,
         Message message,
@@ -133,5 +141,6 @@ public interface IAgentDispatchCoordinator
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<Message>? batch = null);
+        IReadOnlyList<Message>? batch = null,
+        string? costAttributionAgentId = null);
 }

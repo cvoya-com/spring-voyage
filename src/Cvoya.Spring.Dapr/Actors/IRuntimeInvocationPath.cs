@@ -124,6 +124,13 @@ public interface IRuntimeInvocationPath
     /// inbound envelope names every message. <c>null</c> means a one-message
     /// turn — identical to the pre-#3056 behaviour.
     /// </param>
+    /// <param name="costAttributionAgentId">
+    /// The agent id the turn's cost should bill against when it differs from
+    /// <paramref name="subject"/> (issue #3075) — the parent agent id for an
+    /// ephemeral clone, so the clone's spend rolls up to the parent. Forwarded
+    /// verbatim to <see cref="IAgentDispatchCoordinator.RunDispatchAsync"/>.
+    /// <c>null</c> bills the dispatching subject itself.
+    /// </param>
     Task InvokeAsync(
         Address subject,
         Message inbound,
@@ -131,7 +138,8 @@ public interface IRuntimeInvocationPath
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
         CancellationToken ct,
-        IReadOnlyList<Message>? batch = null);
+        IReadOnlyList<Message>? batch = null,
+        string? costAttributionAgentId = null);
 
     /// <summary>
     /// Mailbox-aware lean overload: builds the minimal

@@ -31,6 +31,13 @@ using System.Text.Json;
 /// platform-native correlation a deterministic runtime needs without the
 /// recipient echoing a token. <c>null</c> for an original (non-reply) message.
 /// </param>
+/// <param name="Provenance">
+/// Where the message originated (issue #3075). Defaults to
+/// <see cref="MessageProvenance.Direct"/>; the initiative (Tier-2 reflection)
+/// loop stamps <see cref="MessageProvenance.Initiative"/> on the messages its
+/// reflection actions produce so the dispatch coordinator can classify a
+/// self-initiated turn's cost as <see cref="Costs.CostSource.Initiative"/>.
+/// </param>
 [DataContract]
 public record Message(
     [property: DataMember(Order = 0)] Guid Id,
@@ -40,4 +47,5 @@ public record Message(
     [property: DataMember(Order = 4)] string? ThreadId,
     [property: DataMember(Order = 5)] JsonElement Payload,
     [property: DataMember(Order = 6)] DateTimeOffset Timestamp,
-    [property: DataMember(Order = 7)] Guid? InReplyTo = null);
+    [property: DataMember(Order = 7)] Guid? InReplyTo = null,
+    [property: DataMember(Order = 8)] MessageProvenance Provenance = MessageProvenance.Direct);

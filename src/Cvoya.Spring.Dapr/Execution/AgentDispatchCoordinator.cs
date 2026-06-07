@@ -6,7 +6,9 @@ namespace Cvoya.Spring.Dapr.Execution;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.Extensions.Logging;
@@ -65,7 +67,8 @@ public class AgentDispatchCoordinator(
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<Message>? batch = null)
+        IReadOnlyList<Message>? batch = null,
+        string? costAttributionAgentId = null)
     {
         // #3056: deliver the whole pending set in one turn. message is the
         // representative (batch head) used for routing / correlation /
@@ -143,8 +146,9 @@ public class AgentDispatchCoordinator(
             // the terminal, regardless of exit code — a failed turn still bills.
             // The CostIncurred activity is what the cost ledger (CostRecord) and
             // the BudgetEnforcer consume; without it both sit idle and spend
-            // always reads $0.
-            await EmitCostIncurredAsync(agentId, message, outcome, emitActivity);
+            // always reads $0. #3075 threads the cost-attribution agent (a
+            // clone's parent) and the initiative classification.
+            await EmitCostIncurredAsync(agentId, message, outcome, emitActivity, costAttributionAgentId);
 
             var toolCallCount = TryReadToolCallCount(outcome);
 
@@ -290,11 +294,38 @@ public class AgentDispatchCoordinator(
     /// shape <c>CostTracker.MapToRecord</c> reads. No-op when no cost was
     /// reported (a text-mode runtime or a zero-cost turn).
     /// </summary>
+    /// <remarks>
+    /// #3075: two attribution refinements over the #3073 baseline.
+    /// <list type="bullet">
+    /// <item>
+    /// <description>
+    /// <b>Clone roll-up.</b> When <paramref name="costAttributionAgentId"/> is
+    /// set (the actor passes the parent agent id for an ephemeral clone), the
+    /// cost event's <see cref="ActivityEvent.Source"/> is the parent — so
+    /// <c>CostRecord.AgentId</c> is the parent and the clone's spend rolls up
+    /// to the parent's cost rollup. The clone's own id is preserved in
+    /// <c>details.cloneAgentId</c> for traceability.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// <b>Initiative classification.</b> A turn triggered by a self-addressed
+    /// initiative (Tier-2 reflection) message
+    /// (<see cref="MessageProvenance.Initiative"/> and <c>From</c> is the
+    /// dispatching agent) bills as <see cref="CostSource.Initiative"/>; every
+    /// other turn stays <see cref="CostSource.Work"/>. A reflection message
+    /// addressed to a different agent triggers normal work on the recipient
+    /// (it is responding), so it is not reclassified.
+    /// </description>
+    /// </item>
+    /// </list>
+    /// </remarks>
     private static async Task EmitCostIncurredAsync(
         string agentId,
         Message message,
         RuntimeOutcome outcome,
-        Func<ActivityEvent, CancellationToken, Task> emitActivity)
+        Func<ActivityEvent, CancellationToken, Task> emitActivity,
+        string? costAttributionAgentId)
     {
         if (outcome.Diagnostics is null)
         {
@@ -313,18 +344,25 @@ public class AgentDispatchCoordinator(
         var tenantId = ReadDiagnosticString(outcome.Diagnostics, "tenantId");
         var unitId = ReadDiagnosticString(outcome.Diagnostics, "unitId");
 
+        // Clone roll-up: bill the parent when an attribution target is given,
+        // otherwise the dispatching agent itself.
+        var billedAgentId = string.IsNullOrEmpty(costAttributionAgentId)
+            ? agentId
+            : costAttributionAgentId!;
+        var cloneAgentId = string.IsNullOrEmpty(costAttributionAgentId) ? null : agentId;
+
+        var costSource = ClassifyCostSource(agentId, message);
+
         var details = JsonSerializer.SerializeToElement(new
         {
             model,
             inputTokens,
             outputTokens,
-            // v0.1: every turn's cost is attributed to Work. Classifying a turn
-            // as Initiative (proactive, self-driven) vs Work (responding) needs
-            // the turn's trigger, which the coordinator does not see today —
-            // tracked as a follow-up. Work matches CostTracker's fallback.
-            costSource = nameof(Cvoya.Spring.Core.Costs.CostSource.Work),
+            costSource = costSource.ToString(),
             tenantId,
             unitId,
+            // Present only for a clone turn rolled up to its parent (#3075).
+            cloneAgentId,
             durationMs = (long)outcome.Duration.TotalMilliseconds,
         });
 
@@ -335,7 +373,7 @@ public class AgentDispatchCoordinator(
         var costEvent = new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("agent", agentId),
+            Address.For("agent", billedAgentId),
             ActivityEventType.CostIncurred,
             ActivitySeverity.Info,
             summary,
@@ -344,6 +382,28 @@ public class AgentDispatchCoordinator(
             cost.Value);
 
         await emitActivity(costEvent, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Classifies a turn's cost source from the inbound message's provenance
+    /// (#3075). A self-addressed initiative message — one the agent's own
+    /// Tier-2 reflection loop produced and routed back to itself — bills as
+    /// <see cref="CostSource.Initiative"/>; everything else is
+    /// <see cref="CostSource.Work"/>. The <c>From</c>-is-self check keeps a
+    /// reflection message addressed to a <em>different</em> agent classified as
+    /// the recipient's Work (the recipient is responding, not self-initiating).
+    /// </summary>
+    private static CostSource ClassifyCostSource(string agentId, Message message)
+    {
+        if (message.Provenance != MessageProvenance.Initiative)
+        {
+            return CostSource.Work;
+        }
+
+        // Only the originating agent's own initiative turn is Initiative cost.
+        return GuidFormatter.TryParse(agentId, out var agentGuid) && message.From.Id == agentGuid
+            ? CostSource.Initiative
+            : CostSource.Work;
     }
 
     private static decimal? ReadDiagnosticDecimal(IReadOnlyDictionary<string, object?> diagnostics, string key)

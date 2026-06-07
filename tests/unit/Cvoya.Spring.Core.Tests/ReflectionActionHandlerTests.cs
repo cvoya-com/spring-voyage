@@ -48,6 +48,9 @@ public class ReflectionActionHandlerTests
         message.Type.ShouldBe(MessageType.Domain);
         message.ThreadId.ShouldBe("conv-42");
         message.Payload.GetProperty("Content").GetString().ShouldBe("hello there");
+        // #3075: reflection-produced messages carry Initiative provenance so a
+        // self-addressed initiative turn bills as Initiative cost.
+        message.Provenance.ShouldBe(MessageProvenance.Initiative);
     }
 
     [Fact]
@@ -161,6 +164,43 @@ public class ReflectionActionHandlerTests
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("RequestHelp").GetBoolean().ShouldBeTrue();
         message.Payload.GetProperty("Reason").GetString().ShouldBe("need a review");
+        message.Provenance.ShouldBe(MessageProvenance.Initiative);
+    }
+
+    [Fact]
+    public async Task AllReflectionHandlers_StampInitiativeProvenance()
+    {
+        // Every reflection action handler must tag its message Initiative
+        // (#3075) — the classification depends on it surviving the router /
+        // mailbox boundary. start-conversation + request-help paths included.
+        var startOutcome = new ReflectionOutcome(
+            ShouldAct: true,
+            ActionType: "start-conversation",
+            ActionPayload: JsonSerializer.SerializeToElement(new
+            {
+                targetScheme = "agent",
+                targetPath = BobIdHex,
+                topic = "kickoff",
+            }));
+        var helpOutcome = new ReflectionOutcome(
+            ShouldAct: true,
+            ActionType: "request-help",
+            ActionPayload: JsonSerializer.SerializeToElement(new
+            {
+                targetScheme = "agent",
+                targetPath = BobIdHex,
+                reason = "blocked",
+            }));
+
+        var start = await new StartConversationReflectionActionHandler()
+            .TranslateAsync(AgentAddress, startOutcome, TestContext.Current.CancellationToken);
+        var help = await new RequestHelpReflectionActionHandler()
+            .TranslateAsync(AgentAddress, helpOutcome, TestContext.Current.CancellationToken);
+
+        start.ShouldNotBeNull();
+        start!.Provenance.ShouldBe(MessageProvenance.Initiative);
+        help.ShouldNotBeNull();
+        help!.Provenance.ShouldBe(MessageProvenance.Initiative);
     }
 
     [Fact]

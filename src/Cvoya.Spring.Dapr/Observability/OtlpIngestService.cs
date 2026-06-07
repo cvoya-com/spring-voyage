@@ -4,9 +4,13 @@
 namespace Cvoya.Spring.Dapr.Observability;
 
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Costs;
+using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -36,8 +40,15 @@ public class OtlpIngestService(
     IActivityEventBus activityBus,
     IServiceScopeFactory scopeFactory,
     TimeProvider timeProvider,
+    IModelPriceCatalog priceCatalog,
     ILogger<OtlpIngestService> logger) : IOtlpIngestService
 {
+    // sv.llm.turn span attribute keys the native / SV Agent SDK runtime
+    // stamps (TelemetryClient.LlmTurnSpanImpl). The model + token counts are
+    // all the cost estimate needs (#3075).
+    private const string LlmModelKey = "llm.model";
+    private const string LlmInputTokensKey = "llm.tokens.input";
+    private const string LlmOutputTokensKey = "llm.tokens.output";
     /// <summary>Max events per bucket window before the rate limiter trips.</summary>
     public const int BucketCapacity = 200;
 
@@ -118,6 +129,17 @@ public class OtlpIngestService(
 
                 await activityBus.PublishAsync(activityEvent, cancellationToken);
                 accepted++;
+
+                // #3075: a native / SV Agent SDK runtime reports tokens on its
+                // sv.llm.turn span but no cost (unlike the Claude Code path,
+                // which reports total_cost_usd through the A2A sidecar). Derive
+                // the cost from the model + token counts and publish a second
+                // CostIncurred activity so SDK turns populate cost_records the
+                // same way. No-op when the model is unpriced or zero-token.
+                if (evt.Kind == OtlpEventKind.LlmTurn)
+                {
+                    await TryEmitLlmTurnCostAsync(evt, trimmed, cancellationToken);
+                }
             }
             catch (Exception ex)
             {
@@ -136,6 +158,93 @@ public class OtlpIngestService(
         }
 
         return new OtlpIngestResult(accepted, droppedCapture, droppedRate, droppedError);
+    }
+
+    /// <summary>
+    /// Derives a <see cref="ActivityEventType.CostIncurred"/> activity from an
+    /// accepted <c>sv.llm.turn</c> span using <see cref="IModelPriceCatalog"/>
+    /// (#3075), and publishes it so the cost ledger (<c>CostTracker</c>) and
+    /// <c>BudgetEnforcer</c> consume the SDK / native turn the same as the
+    /// Claude Code path. The emitted <c>details</c> shape mirrors what the
+    /// dispatch coordinator emits, so <c>CostTracker.MapToRecord</c> reads it
+    /// unchanged. No cost is emitted when the model is unpriced or the turn
+    /// reported no tokens — an unknown model never fabricates a spend figure.
+    /// </summary>
+    /// <remarks>
+    /// Best-effort, like the rest of ingest: a throw here is caught by the
+    /// caller's per-event handler and counted as a dropped event without
+    /// affecting the already-published <c>LlmTurn</c> activity. Unit
+    /// attribution is absent — OTLP resource attributes carry tenant + subject
+    /// + thread but not the agent's owning unit — so <c>unitId</c> is omitted
+    /// and the resulting record's <c>UnitId</c> stays null.
+    /// </remarks>
+    private async Task TryEmitLlmTurnCostAsync(
+        OtlpEventIngest evt,
+        JsonElement details,
+        CancellationToken cancellationToken)
+    {
+        var model = ReadDetailString(details, LlmModelKey);
+        var inputTokens = ReadDetailLong(details, LlmInputTokensKey);
+        var outputTokens = ReadDetailLong(details, LlmOutputTokensKey);
+
+        var cost = priceCatalog.EstimateCostUsd(model, inputTokens, outputTokens);
+        if (cost is not > 0m)
+        {
+            return;
+        }
+
+        var costDetails = JsonSerializer.SerializeToElement(new
+        {
+            model = model ?? "unknown",
+            inputTokens = (int)Math.Min(inputTokens, int.MaxValue),
+            outputTokens = (int)Math.Min(outputTokens, int.MaxValue),
+            // SDK/native turns are message-driven runtime work; the initiative
+            // (Tier-2 reflection) loop does not flow through the OTLP span path.
+            costSource = nameof(CostSource.Work),
+            tenantId = GuidFormatter.Format(evt.TenantId),
+            estimated = true,
+        });
+
+        var summary =
+            $"Cost incurred (estimated): {cost.Value.ToString(CultureInfo.InvariantCulture)} USD "
+            + $"({model ?? "unknown"}, {inputTokens} in / {outputTokens} out)";
+
+        var costEvent = new ActivityEvent(
+            Id: Guid.NewGuid(),
+            Timestamp: evt.Timestamp,
+            Source: evt.Subject,
+            EventType: ActivityEventType.CostIncurred,
+            Severity: ActivitySeverity.Info,
+            Summary: summary,
+            Details: costDetails,
+            CorrelationId: evt.ThreadId,
+            Cost: cost.Value);
+
+        await activityBus.PublishAsync(costEvent, cancellationToken);
+    }
+
+    private static string? ReadDetailString(JsonElement details, string key)
+        => details.ValueKind == JsonValueKind.Object
+            && details.TryGetProperty(key, out var prop)
+            && prop.ValueKind == JsonValueKind.String
+            ? prop.GetString()
+            : null;
+
+    private static long ReadDetailLong(JsonElement details, string key)
+    {
+        if (details.ValueKind != JsonValueKind.Object
+            || !details.TryGetProperty(key, out var prop))
+        {
+            return 0;
+        }
+
+        return prop.ValueKind switch
+        {
+            JsonValueKind.Number when prop.TryGetInt64(out var l) => l,
+            JsonValueKind.String when long.TryParse(
+                prop.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var s) => s,
+            _ => 0,
+        };
     }
 
     private static ActivityEventType MapKind(OtlpEventKind kind) => kind switch

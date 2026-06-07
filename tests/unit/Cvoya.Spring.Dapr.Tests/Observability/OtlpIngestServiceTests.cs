@@ -8,8 +8,10 @@ using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Observability;
 using Cvoya.Spring.Dapr.Tenancy;
@@ -65,9 +67,10 @@ public class OtlpIngestServiceTests : IDisposable
         _serviceProvider.Dispose();
     }
 
-    private OtlpIngestService CreateService()
+    private OtlpIngestService CreateService(IModelPriceCatalog? priceCatalog = null)
         => new(_bus, _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
-            _timeProvider, NullLogger<OtlpIngestService>.Instance);
+            _timeProvider, priceCatalog ?? new DefaultModelPriceCatalog(),
+            NullLogger<OtlpIngestService>.Instance);
 
     private async Task SetCaptureLevelAsync(ActivityCaptureLevel level)
     {
@@ -235,5 +238,124 @@ public class OtlpIngestServiceTests : IDisposable
         // Either all are accepted (no-op publish) or all dropped — either way,
         // the call MUST return cleanly.
         (result.Accepted + result.DroppedError).ShouldBe(3);
+    }
+
+    // ------------------------------------------------------------------
+    // #3075: native / SV Agent SDK cost — sv.llm.turn span carries tokens
+    // but no cost, so ingest estimates cost via IModelPriceCatalog and emits
+    // a second CostIncurred activity so SDK turns populate cost_records.
+    // ------------------------------------------------------------------
+
+    private static OtlpEventIngest BuildLlmTurnEvent(
+        string? model = "claude-opus-4-8",
+        long inputTokens = 1_000_000,
+        long outputTokens = 1_000_000,
+        Address? subject = null)
+    {
+        var attrs = new Dictionary<string, object?>
+        {
+            ["span.name"] = "sv.llm.turn",
+            ["llm.tokens.input"] = inputTokens,
+            ["llm.tokens.output"] = outputTokens,
+        };
+        if (model is not null)
+        {
+            attrs["llm.model"] = model;
+        }
+
+        return new OtlpEventIngest(
+            OtlpEventKind.LlmTurn,
+            subject ?? new Address(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-000000000042")),
+            TenantA,
+            ThreadId: "thread-llm",
+            MessageId: "msg-llm",
+            Timestamp: DateTimeOffset.UtcNow,
+            Summary: "sv.llm.turn",
+            Severity: ActivitySeverity.Info,
+            Details: JsonSerializer.SerializeToElement(attrs));
+    }
+
+    [Fact]
+    public async Task IngestAsync_LlmTurnKnownModel_EmitsCostIncurredFromTokens()
+    {
+        await SetCaptureLevelAsync(ActivityCaptureLevel.Full);
+        var service = CreateService();
+
+        var observed = new List<ActivityEvent>();
+        using var sub = _bus.ActivityStream.Subscribe(observed.Add);
+
+        var subject = new Address(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-000000000042"));
+        var result = await service.IngestAsync(
+            new[] { BuildLlmTurnEvent(subject: subject) }, TestContext.Current.CancellationToken);
+
+        result.Accepted.ShouldBe(1);
+
+        // The original LlmTurn activity AND the derived CostIncurred activity.
+        observed.ShouldContain(e => e.EventType == ActivityEventType.LlmTurn);
+        var cost = observed.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+
+        // claude-opus-4-8 → 15/75 per million; 1M + 1M = 90.
+        cost.Cost.ShouldBe(90m);
+        cost.Source.ShouldBe(subject); // billed to the SDK agent (the span subject)
+        cost.CorrelationId.ShouldBe("thread-llm");
+        cost.Details.ShouldNotBeNull();
+        cost.Details!.Value.GetProperty("model").GetString().ShouldBe("claude-opus-4-8");
+        cost.Details!.Value.GetProperty("inputTokens").GetInt32().ShouldBe(1_000_000);
+        cost.Details!.Value.GetProperty("outputTokens").GetInt32().ShouldBe(1_000_000);
+        cost.Details!.Value.GetProperty("costSource").GetString().ShouldBe("Work");
+        cost.Details!.Value.GetProperty("estimated").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IngestAsync_LlmTurnUnknownModel_EmitsNoCostIncurred()
+    {
+        await SetCaptureLevelAsync(ActivityCaptureLevel.Full);
+        var service = CreateService();
+
+        var observed = new List<ActivityEvent>();
+        using var sub = _bus.ActivityStream.Subscribe(observed.Add);
+
+        var result = await service.IngestAsync(
+            new[] { BuildLlmTurnEvent(model: "mystery-model-x") }, TestContext.Current.CancellationToken);
+
+        // The LlmTurn activity still lands; no cost is fabricated for an
+        // unpriced model.
+        result.Accepted.ShouldBe(1);
+        observed.ShouldContain(e => e.EventType == ActivityEventType.LlmTurn);
+        observed.ShouldNotContain(e => e.EventType == ActivityEventType.CostIncurred);
+    }
+
+    [Fact]
+    public async Task IngestAsync_LlmTurnZeroTokens_EmitsNoCostIncurred()
+    {
+        await SetCaptureLevelAsync(ActivityCaptureLevel.Full);
+        var service = CreateService();
+
+        var observed = new List<ActivityEvent>();
+        using var sub = _bus.ActivityStream.Subscribe(observed.Add);
+
+        await service.IngestAsync(
+            new[] { BuildLlmTurnEvent(inputTokens: 0, outputTokens: 0) }, TestContext.Current.CancellationToken);
+
+        observed.ShouldNotContain(e => e.EventType == ActivityEventType.CostIncurred);
+    }
+
+    [Fact]
+    public async Task IngestAsync_NonLlmTurnSpan_EmitsNoCostIncurred()
+    {
+        // A plain span (or tool-call) never produces a cost — only sv.llm.turn.
+        await SetCaptureLevelAsync(ActivityCaptureLevel.Full);
+        var service = CreateService();
+
+        var observed = new List<ActivityEvent>();
+        using var sub = _bus.ActivityStream.Subscribe(observed.Add);
+
+        await service.IngestAsync(new[]
+        {
+            BuildEvent(kind: OtlpEventKind.ToolCall),
+            BuildEvent(kind: OtlpEventKind.Span),
+        }, TestContext.Current.CancellationToken);
+
+        observed.ShouldNotContain(e => e.EventType == ActivityEventType.CostIncurred);
     }
 }
