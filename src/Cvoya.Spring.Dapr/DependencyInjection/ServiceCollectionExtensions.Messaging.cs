@@ -90,7 +90,7 @@ internal static class ServiceCollectionExtensionsMessaging
         // ADR-0049 / #2576: the shared message-delivery seam (validation,
         // per-thread hop budget, bounded-retry delivery) and the messaging
         // tool handlers built on top of it. Singletons: stateless across
-        // calls; per-call state flows through method arguments. ADR-0051
+        // calls; per-call state flows through method arguments. ADR-0054
         // re-fronts the handlers as SvMessagingSkillRegistry — registered
         // in AddCvoyaSpringDaprRouting alongside the other Sv*SkillRegistry
         // types — so sv.messaging.* is served by the single platform MCP

@@ -97,7 +97,7 @@ public class PersistentDispatchIntegrationTests
         // Production dispatch threads message.To.Scheme and the inbound
         // message id into IssueSession so the McpSession carries a
         // materialised Subject Address (#2379) and per-turn delivery
-        // authority (ADR-0051). The mock mirrors that.
+        // authority (ADR-0054). The mock mirrors that.
         _mcpServer.IssueSession(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>())
             .Returns(ci => new McpSession(

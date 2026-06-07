@@ -438,7 +438,7 @@ public class ClaudeCodeLauncher(
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
         };
 
-        // ADR-0051: OTLP-ingest env contract still stamped here.
+        // ADR-0054: OTLP-ingest env contract still stamped here.
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1714 step 2: inject the Claude OAuth token into

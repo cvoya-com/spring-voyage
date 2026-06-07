@@ -7,7 +7,7 @@ namespace Cvoya.Spring.Core.Execution;
 /// Environment contract for the API host's OTLP-ingest callback surface.
 /// </summary>
 /// <remarks>
-/// ADR-0051 collapsed the platform MCP tool surface onto a single server
+/// ADR-0054 collapsed the platform MCP tool surface onto a single server
 /// authenticated by the MCP session token, so the messaging callback API and
 /// its per-turn JWT are gone. These two env vars survive solely as the
 /// OTLP-ingest credential (<c>OtlpCallbackAuthHandler</c> validates

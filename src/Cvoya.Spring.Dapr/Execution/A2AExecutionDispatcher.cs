@@ -264,14 +264,14 @@ public class A2AExecutionDispatcher(
         // Carry the receiver's scheme into the MCP session so platform
         // tools (#2231) can answer get_self()-style queries without a DB
         // lookup. message.To.Scheme is the authoritative caller-kind here.
-        // ADR-0051: the inbound message id rides on the session so the
+        // ADR-0054: the inbound message id rides on the session so the
         // sv.messaging.* tools carry the per-turn delivery authority the
         // retired callback JWT used to provide.
         var session = mcpServer.IssueSession(agentId, threadId, message.To.Scheme, message.Id);
 
         var tenantId = _tenantContext.CurrentTenantId;
 
-        // ADR-0051: sv.messaging.* tools are served by the single platform
+        // ADR-0054: sv.messaging.* tools are served by the single platform
         // MCP server alongside every other sv.* tool — the launcher no longer
         // needs a per-invocation messaging tool list. CallbackThreadId is kept
         // Guid-shaped for the OTLP-ingest callback token; a non-Guid wire form
@@ -856,7 +856,7 @@ public class A2AExecutionDispatcher(
         //    end. The session is scoped to the real per-turn thread id + message
         //    id (message.To.Scheme carries the receiver's kind for #2231;
         //    message.Id rides on the session for per-turn delivery authority,
-        //    ADR-0051) and is the only session the container ever sees.
+        //    ADR-0054) and is the only session the container ever sees.
         //  - a2a-process engines: reuse the DURABLE, agent-scoped token issued
         //    at cold-start (a service identity for the always-on container). It
         //    is delivered on every turn so the engine can refresh a rotated

@@ -96,9 +96,9 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvRuntimeSkillRegistry>(
             sp => sp.GetRequiredService<SvRuntimeSkillRegistry>()));
 
-        // Spring Voyage messaging tools (ADR-0051). sv.messaging.send /
+        // Spring Voyage messaging tools (ADR-0054). sv.messaging.send /
         // sv.messaging.multicast were previously served by a separate MCP
-        // surface under a per-turn callback JWT; ADR-0051 collapses them onto
+        // surface under a per-turn callback JWT; ADR-0054 collapses them onto
         // the single platform MCP server as an ISkillRegistry so they pass
         // through the same effective-grant gate (#2379) and unit-policy
         // enforcement (#162) as every other sv.* tool. Because the tools live

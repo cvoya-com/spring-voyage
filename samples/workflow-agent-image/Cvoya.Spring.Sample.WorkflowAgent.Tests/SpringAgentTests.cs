@@ -15,7 +15,7 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// ADR-0051: <see cref="SpringAgent.FromEnvironment(string?)"/> builds the
+/// ADR-0054: <see cref="SpringAgent.FromEnvironment(string?)"/> builds the
 /// <see cref="IMessagingClient"/> from the platform MCP environment contract
 /// (<c>SPRING_MCP_URL</c> / <c>SPRING_MCP_TOKEN</c>). The per-turn callback
 /// JWT and the <c>message.metadata.callbackToken</c> override are retired —

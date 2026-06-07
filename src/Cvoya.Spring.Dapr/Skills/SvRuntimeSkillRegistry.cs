@@ -23,7 +23,7 @@ using Microsoft.Extensions.Logging;
 /// <c>sv.messaging.multicast</c>) only deliver messages — they do not
 /// record a routing decision (ADR-0048 / ADR-0049). A runtime that
 /// wants its routing choice on the activity stream calls this tool;
-/// it can log ANY decision, whether or not it executed. Per ADR-0051
+/// it can log ANY decision, whether or not it executed. Per ADR-0054
 /// it sits on the same single platform MCP server as every other
 /// <c>sv.*</c> tool, messaging included, under the MCP session token.
 /// </summary>

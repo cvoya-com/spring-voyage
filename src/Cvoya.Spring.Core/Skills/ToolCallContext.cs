@@ -32,10 +32,10 @@ namespace Cvoya.Spring.Core.Skills;
 /// messaging tool (<c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>)
 /// can stamp the outgoing <see cref="Cvoya.Spring.Core.Messaging.Message"/>
 /// and any audit record with the cause of the turn — the per-turn delivery
-/// authority the retired callback JWT used to carry (ADR-0051). The MCP
+/// authority the retired callback JWT used to carry (ADR-0054). The MCP
 /// server materialises it from the active session. Defaults to
 /// <see cref="System.Guid.Empty"/> so context construction in tests written
-/// before ADR-0051 keeps compiling.
+/// before ADR-0054 keeps compiling.
 /// </param>
 public sealed record ToolCallContext(
     string CallerId,

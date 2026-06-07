@@ -174,7 +174,7 @@ public static class SpringAgent
     /// environment contract (<c>SPRING_MCP_URL</c> / <c>SPRING_MCP_TOKEN</c>).
     /// </summary>
     /// <param name="inboundMessageBody">
-    /// Retained for source compatibility. ADR-0051 retired the per-message
+    /// Retained for source compatibility. ADR-0054 retired the per-message
     /// <c>message.metadata.callbackToken</c> override — the MCP session token
     /// is minted per turn and revoked on turn-end, so there is nothing to
     /// override. The parameter is ignored.
@@ -190,7 +190,7 @@ public static class SpringAgent
     /// environment contract (<c>SPRING_MCP_URL</c> / <c>SPRING_MCP_TOKEN</c>).
     /// </summary>
     /// <param name="inboundMessageBody">
-    /// Retained for source compatibility. ADR-0051 retired the per-message
+    /// Retained for source compatibility. ADR-0054 retired the per-message
     /// callback-token override; the parameter is ignored.
     /// </param>
     public static IMessagingClient FromEnvironment(JsonElement inboundMessageBody)

@@ -237,7 +237,7 @@ public class CodexLauncher(
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
         };
 
-        // ADR-0051: OTLP-ingest env contract stamped here.
+        // ADR-0054: OTLP-ingest env contract stamped here.
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1714 step 2: inject the OpenAI API key into OPENAI_API_KEY.
