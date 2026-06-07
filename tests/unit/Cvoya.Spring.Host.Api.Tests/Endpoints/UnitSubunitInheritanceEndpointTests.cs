@@ -165,6 +165,33 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
     }
 
     [Fact]
+    public async Task RemoveMember_AgentMember_ResolvesKindAndRemovesAsAgent_Returns204()
+    {
+        // #2084: when the member id resolves (by id, scheme-free) to an
+        // AGENT, the endpoint issues exactly the agent-typed removal and
+        // does NOT also probe the unit scheme. The sub-unit inheritance
+        // branch is skipped because the DB says this id is an agent, not a
+        // unit.
+        var ct = TestContext.Current.CancellationToken;
+        ResetState();
+
+        var parentAProxy = ArrangeUnit(ParentAUuid, "parent-a");
+        ArrangeAgentMember(ChildUuid, "ada");
+
+        var response = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{ParentAUuid:N}/members/{ChildUuid:N}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await parentAProxy.Received(1).RemoveMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ChildUuid),
+            Arg.Any<CancellationToken>());
+        await parentAProxy.DidNotReceive().RemoveMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task RemoveMember_SubunitRemainingParentsConsistent_Returns204()
     {
         // Removing parent A leaves parent B + parent C. Both remaining
@@ -285,6 +312,13 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
+        // #2084: RemoveMember now resolves the member's actual kind by id
+        // (scheme-independent) via ResolveKindAsync. Stub it for this unit so
+        // the sub-unit-removal inheritance path is reached exactly as before.
+        _factory.DirectoryService
+            .ResolveKindAsync(uuid, Arg.Any<CancellationToken>())
+            .Returns(entry);
+
         var proxy = Substitute.For<IUnitActor>();
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
@@ -292,6 +326,26 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
                 Arg.Any<string>())
             .Returns(proxy);
         return proxy;
+    }
+
+    /// <summary>
+    /// #2084: stub an agent member so RemoveMember resolves its kind by id
+    /// (ResolveKindAsync → agent entry) and issues the single agent-typed
+    /// removal — without trial-spelling the unit scheme.
+    /// </summary>
+    private void ArrangeAgentMember(Guid uuid, string displayName)
+    {
+        var entry = new DirectoryEntry(
+            new Address(Address.AgentScheme, uuid),
+            uuid,
+            displayName,
+            $"{displayName} agent",
+            null,
+            DateTimeOffset.UtcNow);
+
+        _factory.DirectoryService
+            .ResolveKindAsync(uuid, Arg.Any<CancellationToken>())
+            .Returns(entry);
     }
 
     private void StubUnitDefaults(Guid unitId, UnitExecutionDefaults? defaults)

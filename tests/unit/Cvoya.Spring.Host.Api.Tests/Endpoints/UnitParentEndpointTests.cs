@@ -273,12 +273,17 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         // child's identity is whatever Guid the URL segment carries.
         var childUnitId = Guid.NewGuid();
         var childAddress = new Address("unit", childUnitId);
+        var childEntry = new DirectoryEntry(
+            childAddress, childUnitId, "child-unit", "child", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
                 Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == childUnitId),
                 Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                childAddress, childUnitId, "child-unit", "child", null, DateTimeOffset.UtcNow));
+            .Returns(childEntry);
+        // #2084: RemoveMember resolves the member's kind by id (scheme-free).
+        _factory.DirectoryService
+            .ResolveKindAsync(childUnitId, Arg.Any<CancellationToken>())
+            .Returns(childEntry);
 
         // Configure the guard to throw, simulating the "last parent of a
         // non-top-level unit" situation.

@@ -97,6 +97,36 @@ public class DirectoryService(
     }
 
     /// <inheritdoc />
+    public async Task<DirectoryEntry?> ResolveKindAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty)
+        {
+            return null;
+        }
+
+        // Resolve by id alone: probe each tracked kind's scheme-keyed entry
+        // and return the one that actually exists. We do NOT trust a
+        // caller-supplied scheme — the entity's real kind is whichever
+        // definition table the id is found in (issue #2084). Identities are
+        // globally unique Guids minted per artefact, so at most one kind
+        // matches; if a corrupted store ever had both, unit wins (the
+        // composite/parent kind) and the agent probe is skipped.
+        //
+        // Each probe reuses ResolveAsync, so the existing cache fast-path,
+        // DB fallback, write-through caching, AND the tenant + soft-delete
+        // query filters (no IgnoreQueryFilters in LoadFromDatabaseAsync) all
+        // apply: a soft-deleted or cross-tenant id resolves to null here,
+        // matching "exists as a live artefact in this tenant".
+        var unitEntry = await ResolveAsync(new Address(Address.UnitScheme, id), cancellationToken);
+        if (unitEntry is not null)
+        {
+            return unitEntry;
+        }
+
+        return await ResolveAsync(new Address(Address.AgentScheme, id), cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<DirectoryEntry>> ResolveByRoleAsync(string role, CancellationToken cancellationToken = default)
     {
         await EnsureCacheWarmedAsync(cancellationToken);

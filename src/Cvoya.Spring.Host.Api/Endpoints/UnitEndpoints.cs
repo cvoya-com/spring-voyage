@@ -1639,28 +1639,32 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // The caller's memberId is an opaque path; without a scheme it is
-        // ambiguous. Historically the endpoint sent a Domain message shaped
-        // { Action = "RemoveMember", MemberId } that no handler ever read,
-        // so no member was removed. Now we try both "agent://" and "unit://"
-        // spellings against the persisted member list so existing callers
-        // continue to work regardless of member scheme. Remove is idempotent
-        // — no cycle check is required.
+        // The caller's memberId is an opaque path with no scheme. Rather
+        // than trial-spelling "agent://" and "unit://" to discover the
+        // member's kind (#2084), resolve the kind once against the
+        // directory's DB/cache source of truth. The resolved entry — when
+        // present — carries the authoritative scheme, so a unit member is
+        // recognised as a unit because the DB says so, not because a probe
+        // happened to hit. Remove is idempotent — no cycle check is required.
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId)), nameof(UnitActor));
+
+        var memberEntry = Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(memberId, out var parsedMemberId)
+            ? await directoryService.ResolveKindAsync(parsedMemberId, cancellationToken)
+            : null;
+        var memberIsUnit = memberEntry is not null
+            && string.Equals(memberEntry.Address.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase);
 
         // ADR-0039 §6 / B6: if this member id is a sub-unit, removing the
         // edge reshapes the child unit's parent set. Resolve against the
         // remaining parents before the actor-state write so an inherited
         // field that still diverges returns the same structured 422 used by
         // sub-unit assignment.
-        var childUnitAddress = Address.For(Address.UnitScheme, memberId);
-        var childUnitEntry = await directoryService.ResolveAsync(childUnitAddress, cancellationToken);
-        if (childUnitEntry is not null)
+        if (memberIsUnit)
         {
             var conflictResult = await CheckSubunitUnassignmentInheritanceAsync(
                 parentUnitId: entry.ActorId,
-                childUnitId: childUnitEntry.ActorId,
+                childUnitId: memberEntry!.ActorId,
                 inheritanceResolver,
                 subunitRepository,
                 unitExecutionStore,
@@ -1700,8 +1704,24 @@ public static class UnitEndpoints
                 });
         }
 
-        await unitProxy.RemoveMemberAsync(Address.For("agent", memberId), cancellationToken);
-        await unitProxy.RemoveMemberAsync(Address.For("unit", memberId), cancellationToken);
+        // Issue the removal against the resolved kind. When the member is no
+        // longer in the directory (e.g. an actor-state-only remnant of an
+        // already soft-deleted artefact), fall back to both spellings so the
+        // stale edge is still cleaned up — preserving the pre-#2084
+        // idempotent-cleanup behaviour for that case.
+        if (memberIsUnit)
+        {
+            await unitProxy.RemoveMemberAsync(Address.For(Address.UnitScheme, memberId), cancellationToken);
+        }
+        else if (memberEntry is not null)
+        {
+            await unitProxy.RemoveMemberAsync(Address.For(Address.AgentScheme, memberId), cancellationToken);
+        }
+        else
+        {
+            await unitProxy.RemoveMemberAsync(Address.For(Address.AgentScheme, memberId), cancellationToken);
+            await unitProxy.RemoveMemberAsync(Address.For(Address.UnitScheme, memberId), cancellationToken);
+        }
 
         await expertiseAggregator.InvalidateAsync(unitAddress, cancellationToken);
 
