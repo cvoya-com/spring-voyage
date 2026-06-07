@@ -680,14 +680,10 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         using var memory = new MemoryStream(export.Content);
         using var zip = new System.IO.Compression.ZipArchive(
             memory, System.IO.Compression.ZipArchiveMode.Read);
-        foreach (var entry in zip.Entries)
-        {
-            var target = Path.Combine(dest, entry.FullName);
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            using var entryStream = entry.Open();
-            using var fileStream = File.Create(target);
-            entryStream.CopyTo(fileStream);
-        }
+        // Use the framework's path-validating extractor instead of a manual
+        // entry loop: ExtractToDirectory canonicalises each entry path and
+        // rejects "../" escape, guarding against Zip Slip (CodeQL cs/zipslip).
+        System.IO.Compression.ZipFileExtensions.ExtractToDirectory(zip, dest);
         return dest;
     }
 
