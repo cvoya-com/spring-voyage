@@ -99,10 +99,11 @@ own `execution.image` inherit the unit's default.
 
 ## Prerequisites
 
-- [Podman](https://podman.io/) 4.4+ (required for `podman network exists`,
-  modern rootless networking, and the `host.containers.internal` DNS name
-  the worker uses to reach the host-process dispatcher). Install via your
-  distro's package manager.
+- [Podman](https://podman.io/) 5.4+ (the project-wide floor — see ADR-0069;
+  required for `podman network exists`, modern rootless networking, and native
+  resolution of the `host.containers.internal` DNS name the worker uses to reach
+  the host-process dispatcher on the rootless `spring-net` bridge). Install via
+  your distro's package manager.
 - The .NET 10 SDK on the host that runs `spring-voyage-host.sh start` or the
   source-clone `deploy.sh up` path. Direct `start` publishes
   `Cvoya.Spring.Dispatcher` once and reuses the published binary on subsequent

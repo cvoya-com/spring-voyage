@@ -249,9 +249,11 @@ CURL
 #!/usr/bin/env bash
 case "$1" in
   version)
+    # 5.4.0 satisfies install.sh's >= 5.4 floor (ADR-0069); keep this at or
+    # above the floor so the happy-path install fixture clears the gate.
     case "$2" in
-      --format) echo "4.9.0" ;;
-      *) echo "Version: 4.9.0" ;;
+      --format) echo "5.4.0" ;;
+      *) echo "Version: 5.4.0" ;;
     esac ;;
   machine)
     case "$2" in
