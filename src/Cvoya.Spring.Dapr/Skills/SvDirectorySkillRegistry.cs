@@ -242,6 +242,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IUnitMemberGraphStore _memberGraphStore;
     private readonly IUnitHumanMembershipStore _humanMembershipStore;
+    private readonly IUnitMemberRoleDirectory _memberRoleDirectory;
     private readonly IExpertiseStore _expertiseStore;
     private readonly IActorProxyFactory _actorProxyFactory;
     private readonly ITenantContext _tenantContext;
@@ -253,6 +254,12 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// <param name="scopeFactory">Scope factory for the per-call scoped reads (definitions, repositories).</param>
     /// <param name="memberGraphStore">Read seam over <c>unit_memberships</c> / <c>unit_subunit_memberships</c>.</param>
     /// <param name="humanMembershipStore">Read seam over <c>unit_memberships_humans</c>.</param>
+    /// <param name="memberRoleDirectory">
+    /// Single DB-backed seam (#3089) that resolves agent-member effective
+    /// roles — <c>unit_memberships.roles ∪ agent_definitions.role</c>,
+    /// deduped — from one join. Replaces the divergent per-membership role
+    /// passes the list tools used to run independently.
+    /// </param>
     /// <param name="expertiseStore">Read seam for the actor expertise surfaced on every entry.</param>
     /// <param name="actorProxyFactory">
     /// Factory for building <see cref="IAgentActor"/> / <see cref="IUnitActor"/>
@@ -266,6 +273,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         IServiceScopeFactory scopeFactory,
         IUnitMemberGraphStore memberGraphStore,
         IUnitHumanMembershipStore humanMembershipStore,
+        IUnitMemberRoleDirectory memberRoleDirectory,
         IExpertiseStore expertiseStore,
         IActorProxyFactory actorProxyFactory,
         ITenantContext tenantContext,
@@ -274,6 +282,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         _scopeFactory = scopeFactory;
         _memberGraphStore = memberGraphStore;
         _humanMembershipStore = humanMembershipStore;
+        _memberRoleDirectory = memberRoleDirectory;
         _expertiseStore = expertiseStore;
         _actorProxyFactory = actorProxyFactory;
         _tenantContext = tenantContext;
@@ -440,12 +449,12 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         var sourceUnitIds = await ResolveScopeUnitIdsAsync(callerUuid, callerKind, scope, context, ct);
         var addresses = await CollectMembersAsync(sourceUnitIds, scope, callerUuid, ct);
 
-        // Per-membership role supplement mirrors what sv.directory.list_members
-        // does (ADR-0046 §8) so the per-membership roles list — which is
-        // what the role filter is meant to filter against — surfaces on
-        // every agent entry, regardless of which parent unit the entry
-        // was drawn from.
-        var rolesByAgentId = await BuildAgentRolesIndexAsync(sourceUnitIds, ct);
+        // #3089: the per-member effective roles — which is what the role
+        // filter is meant to match against — come from the single member-
+        // role seam (membership roles ∪ agent_definitions.role, deduped),
+        // computed once per source unit. A single agent appearing under
+        // more than one source unit takes the union across those units.
+        var rolesByAgentId = await ResolveAgentRolesAcrossUnitsAsync(sourceUnitIds, ct);
 
         // Materialise every entry first so the filters can match on the
         // rich shape (roles, expertise). Unit sizes in v0.1 keep this
@@ -561,14 +570,15 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Reads the per-membership <c>roles</c> list for every agent across
-    /// the supplied units, returning the union keyed by agent id. When a
-    /// single agent appears in more than one source unit, the role lists
-    /// are concatenated and deduped — the filter then matches across
-    /// the agent's combined membership set, which is what an operator
-    /// would expect "find members with role X" to mean.
+    /// Resolves the effective roles for every agent member across the
+    /// supplied source units via the single <see cref="IUnitMemberRoleDirectory"/>
+    /// seam (#3089). When a single agent appears in more than one source
+    /// unit, the per-unit effective-role lists are unioned (case-insensitive
+    /// dedupe, stable order) — the filter then matches across the agent's
+    /// combined membership set, which is what an operator would expect
+    /// "find members with role X" to mean.
     /// </summary>
-    private async Task<Dictionary<Guid, IReadOnlyList<string>>> BuildAgentRolesIndexAsync(
+    private async Task<Dictionary<Guid, IReadOnlyList<string>>> ResolveAgentRolesAcrossUnitsAsync(
         IReadOnlyList<Guid> sourceUnitIds, CancellationToken ct)
     {
         var result = new Dictionary<Guid, IReadOnlyList<string>>();
@@ -577,25 +587,20 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             return result;
         }
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
         var accumulator = new Dictionary<Guid, List<string>>();
         foreach (var unitId in sourceUnitIds)
         {
-            var memberships = await repo.ListByUnitAsync(unitId, ct);
-            foreach (var membership in memberships)
+            var rolesByAgent = await _memberRoleDirectory.GetAgentMemberRolesAsync(unitId, ct);
+            foreach (var (agentId, roles) in rolesByAgent)
             {
-                var roles = (membership.Roles ?? Array.Empty<string>())
-                    .Where(r => !string.IsNullOrWhiteSpace(r))
-                    .Select(r => r.Trim());
-                if (!accumulator.TryGetValue(membership.AgentId, out var bag))
+                if (!accumulator.TryGetValue(agentId, out var bag))
                 {
                     bag = new List<string>();
-                    accumulator[membership.AgentId] = bag;
+                    accumulator[agentId] = bag;
                 }
                 foreach (var role in roles)
                 {
-                    if (!bag.Contains(role, StringComparer.Ordinal))
+                    if (!bag.Contains(role, StringComparer.OrdinalIgnoreCase))
                     {
                         bag.Add(role);
                     }
@@ -678,10 +683,11 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         {
             return true;
         }
-        // #3086: filter against the effective roles (membership roles ∪ the
-        // agent's definition-level role) so `sv.directory.list role=<x>`
+        // #3089 / #3086: filter against the entry's effective roles
+        // (membership roles ∪ the agent's definition-level role, resolved
+        // once by the member-role seam) so `sv.directory.list role=<x>`
         // matches an agent whose role lives only on its definition.
-        var roles = EffectiveRoles(entry);
+        var roles = EntryRoles(entry);
         if (roles.Count == 0)
         {
             return false;
@@ -795,12 +801,12 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 writer.WritePropertyName("live_status");
                 WriteLiveStatus(writer, report);
             }
-            // #3086: same effective-roles fold as WriteEntry so the
-            // address-keyed lookup surfaces the agent's definition-level
-            // role alongside the per-membership roles.
+            // #3089: emit the entry's already-resolved effective roles,
+            // same as WriteEntry. For the address-keyed lookup the agent's
+            // definition-level role was folded in by BuildEntryAsync.
             writer.WritePropertyName("roles");
             writer.WriteStartArray();
-            foreach (var role in EffectiveRoles(entry))
+            foreach (var role in EntryRoles(entry))
             {
                 writer.WriteStringValue(role);
             }
@@ -932,24 +938,15 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         // multi-valued roles array.
         var humanRows = await _humanMembershipStore.ListByUnitAsync(unitGuid, ct);
 
-        // ADR-0046 §8: agent / unit entries surface their per-membership
-        // roles + expertise. Read the unit's agent-membership rows once
-        // (size ≪ N for v0.1 unit sizes) so the per-agent supplement is
-        // a hash lookup rather than a per-entry DB round-trip. Sub-unit
-        // membership rows currently carry no member-level metadata
-        // (the unit_subunit_memberships table has no roles/expertise
-        // columns), so sub-unit entries surface roles only when the
-        // unit itself ships them via its own definition — not in scope
-        // for ADR-0046 §8.
-        IReadOnlyList<UnitMembership> agentMemberships;
-        await using (var scope = _scopeFactory.CreateAsyncScope())
-        {
-            var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
-            agentMemberships = await repo.ListByUnitAsync(unitGuid, ct);
-        }
-        var agentMembershipByAgentId = agentMemberships
-            .GroupBy(m => m.AgentId)
-            .ToDictionary(g => g.Key, g => g.First());
+        // #3089 / ADR-0046 §8: agent entries surface their effective roles
+        // — membership roles ∪ agent_definitions.role, deduped — resolved
+        // once for the whole unit through the single member-role seam
+        // instead of a per-entry definition read plus a parallel membership
+        // pass. The seam's one join folds both role sources, so the
+        // per-agent supplement below is a hash lookup. Sub-unit members
+        // carry no member-level role metadata (the unit_subunit_memberships
+        // table has no roles column), so sub-unit entries are unaffected.
+        var effectiveRolesByAgentId = await _memberRoleDirectory.GetAgentMemberRolesAsync(unitGuid, ct);
 
         var totalCount = addresses.Count + humanRows.Count;
 
@@ -973,25 +970,18 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             }
             var entry = await BuildEntryAsync(address.Path, address.Scheme, ct);
 
-            // Supplement agent entries with their per-membership roles +
-            // expertise lists (ADR-0046 §8). The agent's own seed-
-            // expertise list already surfaces on entry.Expertise — keep
-            // it on the entry, and additionally project the membership
-            // row's expertise as flat string tags into the same shape
-            // (level-less, description-less) so callers see both signals
-            // in one place.
+            // #3089: stamp the agent entry's effective roles from the
+            // member-role seam. The seam already folds the agent's
+            // definition-level role into the per-membership roles, so the
+            // entry carries the final role set with no further fold needed
+            // downstream. The agent's own seed-expertise list already
+            // surfaces on entry.Expertise from BuildEntryAsync.
             if (string.Equals(address.Scheme, KindAgent, StringComparison.Ordinal)
                 && GuidFormatter.TryParse(address.Path, out var agentGuid)
-                && agentMembershipByAgentId.TryGetValue(agentGuid, out var membership))
+                && effectiveRolesByAgentId.TryGetValue(agentGuid, out var roles)
+                && roles.Count > 0)
             {
-                var roles = (membership.Roles ?? Array.Empty<string>())
-                    .Where(r => !string.IsNullOrWhiteSpace(r))
-                    .Select(r => r.Trim())
-                    .ToList();
-                if (roles.Count > 0)
-                {
-                    entry = entry with { Roles = roles };
-                }
+                entry = entry with { Roles = roles };
             }
 
             entries.Add(entry);
@@ -1217,11 +1207,19 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         // from "runtime reported zero".
         var liveStatus = await ResolveLiveStatusAsync(uuid, kind, ct);
 
-        // #3086: surface the agent's own definition-level role
-        // (agent_definitions.role) on the entry so the effective-roles
-        // projection can union it with the per-membership roles. Only
-        // agent-kind members carry an agent-definition role; unit / human
-        // members keep their existing roles behaviour.
+        // #3089 / #3086: the entry's effective roles. For the single-entry
+        // build there is no containing-unit context, so the effective set
+        // is just the agent's own definition-level role
+        // (agent_definitions.role) run through the shared
+        // EffectiveRolePolicy rule. The per-unit list surfaces
+        // (list_members / list) overwrite Roles afterward with the unit's
+        // membership-roles ∪ definition-role union from the member-role
+        // seam. Unit / human members carry no agent-definition role, so
+        // their Roles stay null here (humans set theirs in BuildHumanEntryAsync).
+        var roles = string.Equals(kind, KindAgent, StringComparison.Ordinal)
+            ? EffectiveRolePolicy.Combine(null, agentRole)
+            : null;
+
         return new DirectoryEntry(
             Uuid: uuid,
             Kind: kind,
@@ -1231,7 +1229,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             Expertise: expertise,
             MemberCount: memberCount,
             LiveStatus: liveStatus,
-            AgentRole: string.Equals(kind, KindAgent, StringComparison.Ordinal) ? agentRole : null);
+            Roles: roles);
     }
 
     private async Task<DirectoryEntry> BuildTenantSentinelAsync(CancellationToken ct)
@@ -1677,12 +1675,13 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         // human entries; additive on agent / unit entries (the field was
         // absent before). Uniform shape lets clients treat `roles` as a
         // stable `string[]` without distinguishing missing from empty.
-        // #3086: the effective roles fold the agent's definition-level role
-        // into the per-membership roles so role-based delegation resolves
+        // #3089 / #3086: the entry's Roles is already the effective set
+        // (membership roles ∪ the agent's definition-level role), resolved
+        // once by the member-role seam, so role-based delegation resolves
         // even when the membership row carries no roles.
         writer.WritePropertyName("roles");
         writer.WriteStartArray();
-        foreach (var role in EffectiveRoles(entry))
+        foreach (var role in EntryRoles(entry))
         {
             writer.WriteStringValue(role);
         }
@@ -1715,47 +1714,19 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         IReadOnlyList<ExpertiseDomain> Expertise,
         int? MemberCount,
         AgentRuntimeStatusReport? LiveStatus,
-        IReadOnlyList<string>? Roles = null,
-        string? AgentRole = null);
+        IReadOnlyList<string>? Roles = null);
 
     /// <summary>
-    /// Computes the effective roles surfaced on an entry's wire <c>roles</c>
-    /// array (#3086). Unions the entry's per-membership <see cref="DirectoryEntry.Roles"/>
-    /// with the agent's own definition-level <see cref="DirectoryEntry.AgentRole"/>:
-    /// the membership roles come first in their existing order, then the
-    /// agent role is appended iff it is not already present (case-insensitive
-    /// dedupe). For unit / human entries (no <see cref="DirectoryEntry.AgentRole"/>)
-    /// this returns the membership roles unchanged, so their behaviour is
-    /// untouched.
+    /// The effective roles surfaced on an entry's wire <c>roles</c> array.
+    /// #3089 made the entry's <see cref="DirectoryEntry.Roles"/> the
+    /// already-resolved effective set — list surfaces stamp the per-unit
+    /// union from <see cref="IUnitMemberRoleDirectory"/>, single-entry
+    /// surfaces stamp the agent's definition-level role via
+    /// <see cref="EffectiveRolePolicy.Combine"/> in
+    /// <see cref="BuildEntryAsync"/>, and humans set theirs in
+    /// <see cref="BuildHumanEntryAsync"/> — so this is a straight read
+    /// with a null-coalesce, no fold.
     /// </summary>
-    private static IReadOnlyList<string> EffectiveRoles(DirectoryEntry entry)
-    {
-        var membershipRoles = entry.Roles ?? Array.Empty<string>();
-        if (string.IsNullOrWhiteSpace(entry.AgentRole))
-        {
-            return membershipRoles;
-        }
-
-        var agentRole = entry.AgentRole!.Trim();
-        if (string.IsNullOrEmpty(agentRole))
-        {
-            return membershipRoles;
-        }
-
-        var result = new List<string>(membershipRoles.Count + 1);
-        var alreadyPresent = false;
-        foreach (var role in membershipRoles)
-        {
-            result.Add(role);
-            if (string.Equals(role, agentRole, StringComparison.OrdinalIgnoreCase))
-            {
-                alreadyPresent = true;
-            }
-        }
-        if (!alreadyPresent)
-        {
-            result.Add(agentRole);
-        }
-        return result;
-    }
+    private static IReadOnlyList<string> EntryRoles(DirectoryEntry entry) =>
+        entry.Roles ?? Array.Empty<string>();
 }

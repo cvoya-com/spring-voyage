@@ -475,10 +475,16 @@ public class SvDirectorySkillRegistry_LiveStatusTests
                     .Returns(proxy);
             }
 
+            // #3089: these tests pin live_status, not roles, so an empty
+            // member-role seam is sufficient — agent entries surface no
+            // roles, which the live-status assertions do not inspect.
+            var memberRoleDirectory = new InMemoryUnitMemberRoleDirectory();
+
             var registry = new SvDirectorySkillRegistry(
                 scopeFactory,
                 memberGraph,
                 _membershipStore,
+                memberRoleDirectory,
                 expertiseStore,
                 actorProxyFactory,
                 tenantContext,
