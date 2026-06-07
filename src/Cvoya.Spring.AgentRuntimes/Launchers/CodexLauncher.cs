@@ -21,18 +21,23 @@ using Microsoft.Extensions.Logging;
 /// <list type="bullet">
 ///   <item><c>AGENTS.md</c> — the assembled system prompt (all four layers).
 ///         Codex reads this file as its instructions equivalent of Claude Code's <c>CLAUDE.md</c>.</item>
-///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token the Codex agent will dial.</item>
+///   <item><c>.codex/config.toml</c> — the <c>[mcp_servers.spring-voyage]</c>
+///         stdio MCP server entry the Codex CLI discovers under
+///         <c>$CODEX_HOME</c> (#3122). Unlike Claude/Gemini, Codex does NOT
+///         read <c>.mcp.json</c>.</item>
 /// </list>
 /// These files are written into the per-agent persistent workspace volume —
-/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/>
 /// (ADR-0029, #2608).
 /// <para>
 /// <b>Expected container image shape:</b> The image must bundle the Codex CLI
 /// and the A2A sidecar from <c>agents/a2a-sidecar/</c>. The sidecar wraps the
 /// <c>codex</c> CLI binary, exposing it behind an A2A endpoint. The container
-/// must read <c>AGENTS.md</c> and <c>.mcp.json</c> from the
-/// <c>SPRING_WORKSPACE_PATH</c> mount and honour the <c>OPENAI_API_KEY</c>
-/// environment variable for authentication with the OpenAI API.
+/// must read <c>AGENTS.md</c> from the <c>SPRING_WORKSPACE_PATH</c> mount,
+/// read the platform MCP server from <c>$CODEX_HOME/config.toml</c> (the
+/// launcher points <c>CODEX_HOME</c> at a workspace-relative dir), and honour
+/// the <c>OPENAI_API_KEY</c> environment variable for authentication with the
+/// OpenAI API.
 /// </para>
 /// </summary>
 public class CodexLauncher(
@@ -57,18 +62,58 @@ public class CodexLauncher(
     internal const string CredentialEnvVar = "OPENAI_API_KEY";
 
     /// <summary>
-    /// Workspace-relative file name of the MCP config the Codex CLI reads
-    /// its <c>spring-voyage</c> server definition from. ADR-0054: a single
-    /// platform MCP server serves every sv.* tool. ADR-0057 §1: the CLI
-    /// dials the sidecar's stdio MCP-server mode under this server name.
+    /// Workspace-relative directory the launcher points <c>CODEX_HOME</c> at
+    /// (#3122). The Codex CLI reads <c>config.toml</c> — and therefore the
+    /// platform's <c>[mcp_servers.spring-voyage]</c> entry — from this
+    /// directory. A dot-prefixed name keeps it out of agent-author tools that
+    /// walk the workspace tree for sources, and anchoring it under the
+    /// per-agent workspace volume means the config survives container restart.
     /// </summary>
-    internal const string McpConfigFileName = ".mcp.json";
+    internal const string CodexHomeRelative = ".codex";
+
+    /// <summary>
+    /// File name (under <see cref="CodexHomeRelative"/>) the Codex CLI reads
+    /// its configuration — including the <c>[mcp_servers.&lt;name&gt;]</c>
+    /// tables — from. Verified against codex-cli (the <c>CONFIG_TOML_FILE</c>
+    /// constant in <c>codex-rs/core/src/config</c>): Codex discovers MCP
+    /// servers from <c>$CODEX_HOME/config.toml</c>, NOT from <c>.mcp.json</c>
+    /// (#3122).
+    /// </summary>
+    internal const string CodexConfigFileName = "config.toml";
+
+    /// <summary>
+    /// Env var the Codex CLI reads to locate its config home. When set, Codex
+    /// reads <c>config.toml</c> (and writes its session / credential state)
+    /// under this directory instead of the default <c>~/.codex/</c>. Verified
+    /// against codex-cli (<c>find_codex_home</c> in
+    /// <c>codex-rs/core/src/config</c>).
+    /// </summary>
+    internal const string CodexHomeEnvVar = "CODEX_HOME";
 
     /// <summary>
     /// MCP server entry name — ADR-0054's single <c>spring-voyage</c>
     /// platform MCP server, now sidecar-local per ADR-0057.
     /// </summary>
     internal const string SpringVoyageMcpServerName = "spring-voyage";
+
+    /// <summary>
+    /// Env var the A2A sidecar reads to learn how to interpret the Codex
+    /// CLI's stdout (<c>src/Cvoya.Spring.AgentSidecar/src/config.ts</c>). Set
+    /// to <see cref="OutputFormatStreamJson"/> because <see cref="BaseCodexArgv"/>
+    /// runs <c>codex exec --json</c> (#3123); the sidecar parses the Codex
+    /// JSONL event stream, surfaces the <c>agent_message</c> item as the
+    /// reply, surfaces tool calls as status, and hands the turn's token usage
+    /// to the host as A2A task metadata (Codex reports no per-turn USD cost).
+    /// </summary>
+    internal const string OutputFormatEnvVar = "SPRING_AGENT_OUTPUT_FORMAT";
+
+    /// <summary>
+    /// NDJSON stream-json output-format hint value for
+    /// <see cref="OutputFormatEnvVar"/>. The sidecar's single shape-driven
+    /// stream-json parser recognises Codex's JSONL events alongside the
+    /// Claude/Gemini schemas (#3123).
+    /// </summary>
+    internal const string OutputFormatStreamJson = "stream-json";
 
     /// <summary>
     /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside the
@@ -103,21 +148,20 @@ public class CodexLauncher(
     ///   git repo; Codex otherwise refuses (or prompts) to start there.
     ///   Belt-and-suspenders alongside the bypass flag, mirroring Gemini's
     ///   <c>--skip-trust</c>.</item>
+    ///   <item><c>--json</c> makes <c>codex exec</c> emit Codex's own JSONL
+    ///   event stream (<c>thread.started</c> / <c>turn.started</c> /
+    ///   <c>item.completed</c> with an <c>agent_message</c> item / and a
+    ///   terminal <c>turn.completed</c> carrying token <c>usage</c>) instead
+    ///   of bare prose. The sidecar (gated by <see cref="OutputFormatEnvVar"/>
+    ///   = <see cref="OutputFormatStreamJson"/>) parses it with the same
+    ///   shape-driven stream-json parser that handles Claude/Gemini, surfaces
+    ///   the <c>agent_message</c> text as the reply, surfaces
+    ///   <c>mcp_tool_call</c> items as tool-call status, and hands the turn's
+    ///   token usage to the host. Codex reports token usage but no per-turn
+    ///   USD cost — the host treats absence of a positive cost as "free"
+    ///   while still recording tokens, exactly as the Gemini path does
+    ///   (#3123).</item>
     /// </list>
-    /// <para>
-    /// <b>Why plain text and not <c>--json</c>:</b> <c>codex exec</c> (no
-    /// <c>--json</c>) writes the assistant's final reply to stdout as clean
-    /// prose, which the sidecar's default <c>text</c> output mode forwards
-    /// verbatim — so a single message dispatches end-to-end with no
-    /// Codex-specific parser. <c>codex exec --json</c> emits Codex's own
-    /// JSONL event stream (<c>thread.started</c> / <c>turn.started</c> /
-    /// <c>item.completed</c> / <c>turn.completed</c>), which is a <i>different</i>
-    /// schema from the Claude/Gemini <c>--output-format stream-json</c> shape
-    /// the sidecar parses (#2226) and from Claude's single-object
-    /// <c>--output-format json</c> result (#3073). Surfacing Codex's per-turn
-    /// cost/usage from that JSONL is tracked separately in #3123 — until it
-    /// lands, text output keeps the reply clean.
-    /// </para>
     /// <para>
     /// No <c>SPRING_THREAD_ID_ARG_CREATE</c> / <c>_RESUME</c> is emitted: the
     /// catalogue's Codex <c>threadBinding</c> is <c>kind: none</c> (#2118)
@@ -132,6 +176,7 @@ public class CodexLauncher(
     [
         "codex",
         "exec",
+        "--json",
         "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
     ];
@@ -213,27 +258,38 @@ public class CodexLauncher(
             // threadBinding is `kind: none` (#2118), so the bridge appends no
             // session-id flag — Codex cold-starts a fresh session per turn.
             ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(BaseCodexArgv),
+            // #3123: BaseCodexArgv runs `codex exec --json`, so tell the
+            // sidecar to parse the JSONL event stream — surface the
+            // agent_message item as the reply, tool calls as status, and
+            // forward the turn's token usage to the host. Paired with the
+            // `--json` argv token above.
+            [OutputFormatEnvVar] = OutputFormatStreamJson,
+            // #3122: point CODEX_HOME at a workspace-relative dir so the Codex
+            // CLI reads the platform's `[mcp_servers.spring-voyage]` entry from
+            // <CODEX_HOME>/config.toml (written by ContributeBundleAsync).
+            // Codex does NOT read `.mcp.json`. Anchoring it under the per-agent
+            // workspace volume keeps the config (and Codex's own session /
+            // credential state) across container restarts.
+            [CodexHomeEnvVar] = $"{workspaceMountNoSlash}/{CodexHomeRelative}",
             // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
             // the long-running A2A sidecar writes the per-turn MCP token
-            // to <SPRING_WORKSPACE_PATH>/.spring/bridge/mcp-token
-            // before each CLI spawn; the per-turn sidecar-MCP-server-mode
-            // child reads it from the same path.
+            // to <SPRING_WORKSPACE_PATH>/.spring/bridge/work/<thread>/mcp-token
+            // before each CLI spawn and points the spawn env's
+            // SPRING_MCP_TOKEN_PATH at that file (per-turn isolation, #3000).
             //
-            // #3018 (Codex MCP env propagation): empirically, the Codex CLI
-            // does NOT propagate its process env to the stdio MCP server it
-            // spawns (verified against codex-cli 0.136.x: only the server's
-            // declared `env` block reaches the child). So the per-turn
-            // `SPRING_MCP_TOKEN_PATH` isolation from #3017 cannot reach a
-            // Codex-spawned MCP child via env propagation — the child resolves
-            // the shared per-agent token path the sidecar always (re)writes as
-            // its no-regression fallback. Codex therefore does not support
-            // concurrent-thread per-turn token isolation; under
-            // SPRING_CONCURRENT_THREADS=true it stays on the shared-token
-            // path. (Gemini, by contrast, does propagate the env — verified
-            // the same way — so it needs no explicit wiring.) Carrying the
-            // per-turn token to Codex via its config.toml `env` block is not
-            // possible either, because that block is static config, not a
-            // per-turn channel; the broader fix is tracked in #3122.
+            // #3122 / #3018: the Codex CLI does not blanket-propagate its
+            // process env to the stdio MCP server it spawns — but its
+            // `[mcp_servers.<name>]` config supports an `env_vars` whitelist
+            // (verified against codex-cli `create_env_for_mcp_server` in
+            // codex-rs/rmcp-client): every name in that list is resolved from
+            // Codex's OWN process env and forwarded into the MCP child.
+            // ContributeBundleAsync lists SPRING_MCP_TOKEN_PATH there, so the
+            // per-turn token path the sidecar set on this spawn env reaches the
+            // child — Codex gets full per-turn token isolation, same as
+            // Claude/Gemini (the #3018 "no propagation, shared-token fallback
+            // only" limitation is lifted). SPRING_WORKSPACE_PATH is forwarded
+            // too so the child can resolve the shared-fallback path for turns
+            // with no thread id.
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
         };
 
@@ -253,8 +309,9 @@ public class CodexLauncher(
             // is CWD-independent (a null WorkingDirectory lets the image's
             // WORKDIR win), so a CLI launcher that discovers config relative to
             // CWD must opt in explicitly. The Codex CLI auto-discovers
-            // `AGENTS.md` and `.mcp.json`, and the per-turn mcp-token, from the
-            // workspace root — CWD must be that mount.
+            // `AGENTS.md` from the workspace root (and the bridge spawns the
+            // CLI here); its MCP server set comes from `$CODEX_HOME/config.toml`
+            // (#3122), which the env var above resolves independent of CWD.
             WorkingDirectory: workspaceMountNoSlash);
     }
 
@@ -267,8 +324,17 @@ public class CodexLauncher(
     /// </remarks>
     public string? GetWorkspacePromptFragment() =>
         """
-        Your runtime is the OpenAI Codex CLI (`codex`). Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns — anything you write under it stays available next turn. The CLI auto-discovers its system prompt from `AGENTS.md` at the workspace root and its MCP server set from `.mcp.json` (also at the workspace root).
+        Your runtime is the OpenAI Codex CLI (`codex`). Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns — anything you write under it stays available next turn. The CLI auto-discovers its system prompt from `AGENTS.md` at the workspace root and its MCP server set from `config.toml` under `$CODEX_HOME`.
         """;
+
+    /// <summary>
+    /// Workspace-relative path of the Codex config file the bundle writes —
+    /// <c>.codex/config.toml</c>. Equals <see cref="CodexHomeRelative"/> +
+    /// <see cref="CodexConfigFileName"/>; the launcher points
+    /// <see cref="CodexHomeEnvVar"/> at the same <c>.codex</c> dir so the CLI
+    /// reads this exact file (#3122).
+    /// </summary>
+    internal const string CodexConfigPath = CodexHomeRelative + "/" + CodexConfigFileName;
 
     /// <inheritdoc />
     public Task<AgentBootstrapContribution> ContributeBundleAsync(
@@ -277,37 +343,32 @@ public class CodexLauncher(
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // ADR-0057 §§1, 3: the sidecar stdio MCP-server-mode `command`-typed
-        // server entry. See ClaudeCodeLauncher.ContributeBundleAsync for the
-        // full rationale; identical shape, only the server-name reuse and the
-        // sidecar binary path are shared. No HTTP transport, no Authorization
-        // header — the CLI never sees the per-turn token.
+        // #3122 / ADR-0057 §§1, 3: the Codex CLI discovers MCP servers from
+        // `$CODEX_HOME/config.toml` `[mcp_servers.<name>]` (verified against
+        // codex-cli — it does NOT read `.mcp.json`, unlike Claude/Gemini). So
+        // the platform's single sidecar-local stdio MCP server (ADR-0054's
+        // one `spring-voyage` server) is written as a TOML `[mcp_servers.…]`
+        // table here. The shape mirrors Claude's `.mcp.json` stdio entry
+        // (command = node, args = [<sidecar>, "mcp"], a static `env` block
+        // for SPRING_MCP_PROXY_URL / SPRING_WORKSPACE_PATH) — the CLI spawns
+        // `node /opt/.../cli.js mcp` as a child each tool-use round, and that
+        // child proxies onto the worker's POST /mcp/ route. No HTTP transport,
+        // no Authorization header — the CLI never sees the per-turn token.
         //
-        // KNOWN GAP (#3122): the Codex CLI does NOT read `.mcp.json` — it
-        // discovers MCP servers from `$CODEX_HOME/config.toml`
-        // `[mcp_servers.<name>]` (verified against codex-cli 0.136.x). So this
-        // `.mcp.json` is currently inert for Codex and the platform sv.* tools
-        // are not yet wired for the `codex` runtime. Writing it here keeps the
-        // bundle shape parallel with Claude/Gemini until #3122 moves the Codex
-        // MCP wiring to its real config.toml surface; it is harmless (an unread
-        // file in the workspace), not load-bearing.
-        var mcpConfig = new
-        {
-            mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
-            {
-                [SpringVoyageMcpServerName] = new
-                {
-                    command = ClaudeCodeLauncher.SidecarNodeBinary,
-                    args = new[] { ClaudeCodeLauncher.SidecarBinaryPath, "mcp" },
-                    env = new Dictionary<string, string>
-                    {
-                        ["SPRING_MCP_PROXY_URL"] = context.McpEndpoint,
-                        ["SPRING_WORKSPACE_PATH"] =
-                            AgentWorkspaceContract.BuildMountPath(context.AgentId),
-                    },
-                },
-            },
-        };
+        // The per-turn MCP session token is delivered via the `env_vars`
+        // whitelist (SPRING_MCP_TOKEN_PATH), NOT the static `env` block: Codex
+        // resolves each `env_vars` name from its OWN process env and forwards
+        // it to the MCP child (codex-rs `create_env_for_mcp_server`), so the
+        // per-turn path the sidecar stamps on the CLI spawn env (#3000) reaches
+        // the child. A static `env` value cannot carry a per-turn token — it
+        // is fixed at bundle-build time — which is why SPRING_MCP_TOKEN_PATH
+        // must ride `env_vars` and not `env`. SPRING_WORKSPACE_PATH is in both:
+        // the static `env` guarantees the child can resolve the shared-fallback
+        // token path even when the CLI env carries no per-thread pointer (a
+        // turn with no thread id).
+        var configToml = BuildSpringVoyageMcpConfigToml(
+            mcpProxyUrl: context.McpEndpoint,
+            workspacePath: AgentWorkspaceContract.BuildMountPath(context.AgentId));
 
         // AGENTS.md is the Codex CLI's auto-discovered system-prompt
         // file. The bundle provider has composed the per-agent system
@@ -317,12 +378,80 @@ public class CodexLauncher(
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["AGENTS.md"] = context.AssembledSystemPrompt,
-            [McpConfigFileName] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true }),
+            [CodexConfigPath] = configToml,
         };
 
         return Task.FromResult(new AgentBootstrapContribution(
             Files: files,
-            PlatformFilePaths: new[] { "AGENTS.md", McpConfigFileName }));
+            PlatformFilePaths: new[] { "AGENTS.md", CodexConfigPath }));
+    }
+
+    /// <summary>
+    /// Builds the Codex <c>config.toml</c> body carrying the single
+    /// <c>[mcp_servers.spring-voyage]</c> stdio server table (#3122).
+    /// </summary>
+    /// <remarks>
+    /// Hand-rendered rather than via a TOML library so
+    /// <c>Cvoya.Spring.AgentRuntimes</c> stays dependency-free and the output
+    /// is deterministic and unit-pinnable. The shape is fixed (one stdio
+    /// server, known keys), so a full TOML serialiser would be over-kill.
+    /// String values are emitted as TOML basic strings via
+    /// <see cref="TomlBasicString"/> (escaping <c>"</c> and <c>\</c>), which
+    /// is sufficient for the workspace paths / URLs / env-var names this table
+    /// carries.
+    /// </remarks>
+    internal static string BuildSpringVoyageMcpConfigToml(string mcpProxyUrl, string workspacePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mcpProxyUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspacePath);
+
+        var builder = new System.Text.StringBuilder();
+        builder.Append("# Spring Voyage platform MCP server (#3122).\n");
+        builder.Append("# Codex discovers MCP servers from this file under $CODEX_HOME — NOT .mcp.json.\n");
+        builder.Append('[').Append("mcp_servers.").Append(SpringVoyageMcpServerName).Append("]\n");
+        builder.Append("command = ").Append(TomlBasicString(ClaudeCodeLauncher.SidecarNodeBinary)).Append('\n');
+        builder.Append("args = [")
+            .Append(TomlBasicString(ClaudeCodeLauncher.SidecarBinaryPath))
+            .Append(", ")
+            .Append(TomlBasicString("mcp"))
+            .Append("]\n");
+        // env_vars: names forwarded from Codex's own process env into the MCP
+        // child. SPRING_MCP_TOKEN_PATH carries THIS turn's per-thread token
+        // file path (the sidecar sets it on the spawn env per turn, #3000), so
+        // listing it here is what gives Codex per-turn token isolation.
+        builder.Append("env_vars = [")
+            .Append(TomlBasicString(McpTokenStorePathEnvVar))
+            .Append("]\n");
+        // Static env block: fixed values known at bundle-build time. The
+        // per-turn token path canNOT live here (see ContributeBundleAsync).
+        builder.Append('[').Append("mcp_servers.").Append(SpringVoyageMcpServerName).Append(".env]\n");
+        builder.Append("SPRING_MCP_PROXY_URL = ").Append(TomlBasicString(mcpProxyUrl)).Append('\n');
+        builder.Append("SPRING_WORKSPACE_PATH = ").Append(TomlBasicString(workspacePath)).Append('\n');
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Env var the sidecar's MCP-server-mode child reads the per-turn token
+    /// file path from (<c>SPRING_MCP_TOKEN_PATH</c>, mirrored from
+    /// <c>mcp-token-store.ts</c>'s <c>MCP_TOKEN_PATH_ENV_VAR</c>). Listed in
+    /// the Codex MCP server's <c>env_vars</c> whitelist so Codex forwards the
+    /// sidecar-set per-turn value to the child (#3122 / #3000).
+    /// </summary>
+    internal const string McpTokenStorePathEnvVar = "SPRING_MCP_TOKEN_PATH";
+
+    /// <summary>
+    /// Renders <paramref name="value"/> as a TOML basic string — wrapped in
+    /// double quotes with <c>\</c> and <c>"</c> escaped. The values this
+    /// launcher emits (container paths, a localhost URL, env-var names) carry
+    /// no control characters, so basic-string escaping is sufficient.
+    /// </summary>
+    internal static string TomlBasicString(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var escaped = value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
+        return $"\"{escaped}\"";
     }
 
     private async Task ResolveRuntimeCredentialAsync(

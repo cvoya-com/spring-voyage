@@ -142,6 +142,15 @@ public class AgentDispatchCoordinator(
                     CancellationToken.None);
             }
 
+            // #3124: ingest the sidecar's parsed stream-json events as activity
+            // events BEFORE the terminal so a CLI-runtime turn (claude-code /
+            // gemini / codex) is observable in the portal Activity feed and via
+            // `spring tail`: one ToolCall per tool the parser saw, and a
+            // RuntimeLog for any captured stderr (so non-structured runtime
+            // output is never silently dropped). Lands after RuntimeReasoning,
+            // before cost / terminal.
+            await EmitStreamRuntimeEventsAsync(agentId, message, outcome, emitActivity);
+
             // #3073: emit the turn's cost (when the runtime reported one) BEFORE
             // the terminal, regardless of exit code — a failed turn still bills.
             // The CostIncurred activity is what the cost ledger (CostRecord) and
@@ -281,6 +290,127 @@ public class AgentDispatchCoordinator(
             JsonElement el when el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n) => n,
             _ => int.TryParse(raw.ToString(), out var parsed) ? parsed : 0,
         };
+    }
+
+    /// <summary>
+    /// Ingests the sidecar's parsed stream-json events (#3124) as activity
+    /// events so a CLI-runtime turn is observable in the portal Activity feed
+    /// and via <c>spring tail</c>. Emits one
+    /// <see cref="ActivityEventType.ToolCall"/> per tool name the parser
+    /// observed (<see cref="RuntimeOutcome.StreamToolCallsKey"/>), and a single
+    /// <see cref="ActivityEventType.RuntimeLog"/> at
+    /// <see cref="ActivitySeverity.Warning"/> for any captured stderr
+    /// (<see cref="RuntimeOutcome.RuntimeStderrKey"/>) so non-structured runtime
+    /// output is never silently dropped. All events share the inbound message's
+    /// thread id as their correlation id, so they filter alongside the turn's
+    /// other activities. No-op when the diagnostics carry neither key (a
+    /// text-mode runtime, or a turn with no tool calls and no stderr).
+    /// </summary>
+    /// <remarks>
+    /// This is the general Claude/Gemini/Codex mapping. The sidecar's
+    /// stream-json parser surfaces tool-call <em>names</em> only — not call
+    /// ids, arguments, or results — so this emits <c>ToolCall</c> without a
+    /// paired <c>ToolResult</c>, and does not synthesise a separate
+    /// <c>LlmTurn</c> (the assistant text already rides the
+    /// <see cref="ActivityEventType.RuntimeReasoning"/> event). Enriching the
+    /// parser to carry call ids / arguments / results — and the matching
+    /// <c>ToolResult</c> / <c>LlmTurn</c> events — is the larger event-taxonomy
+    /// work tracked as a follow-up (#3138).
+    /// </remarks>
+    private static async Task EmitStreamRuntimeEventsAsync(
+        string agentId,
+        Message message,
+        RuntimeOutcome outcome,
+        Func<ActivityEvent, CancellationToken, Task> emitActivity)
+    {
+        if (outcome.Diagnostics is null)
+        {
+            return;
+        }
+
+        var toolNames = ReadDiagnosticStringList(outcome.Diagnostics, RuntimeOutcome.StreamToolCallsKey);
+        for (var i = 0; i < toolNames.Count; i++)
+        {
+            var toolName = toolNames[i];
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    message.ThreadId,
+                    ActivityEventType.ToolCall,
+                    ActivitySeverity.Info,
+                    $"Tool call: {toolName}",
+                    details: JsonSerializer.SerializeToElement(new
+                    {
+                        toolName,
+                        // The sidecar reports names only — no call id / arguments
+                        // (see the method remarks / #3138). callIndex preserves
+                        // the observed order so consumers can sequence the calls.
+                        callIndex = i,
+                        agentId,
+                        threadId = message.ThreadId,
+                    })),
+                CancellationToken.None);
+        }
+
+        var stderr = ReadDiagnosticString(outcome.Diagnostics, RuntimeOutcome.RuntimeStderrKey);
+        if (!string.IsNullOrEmpty(stderr))
+        {
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    message.ThreadId,
+                    ActivityEventType.RuntimeLog,
+                    ActivitySeverity.Warning,
+                    Summarise(stderr),
+                    details: JsonSerializer.SerializeToElement(new
+                    {
+                        body = stderr,
+                        severity_text = "WARNING",
+                        agentId,
+                        threadId = message.ThreadId,
+                    })),
+                CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Reads a string list off the diagnostics bag (e.g.
+    /// <see cref="RuntimeOutcome.StreamToolCallsKey"/>). Tolerates the value
+    /// arriving as a <see cref="IReadOnlyList{T}"/> / <see cref="IEnumerable{T}"/>
+    /// of strings (the in-process path) or a JSON array (a serialised path).
+    /// Returns an empty list when the key is absent or unreadable.
+    /// </summary>
+    private static IReadOnlyList<string> ReadDiagnosticStringList(
+        IReadOnlyDictionary<string, object?> diagnostics, string key)
+    {
+        if (!diagnostics.TryGetValue(key, out var raw) || raw is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        switch (raw)
+        {
+            case IReadOnlyList<string> list:
+                return list;
+            case IEnumerable<string> seq:
+                return seq.ToArray();
+            case JsonElement el when el.ValueKind == JsonValueKind.Array:
+                var fromJson = new List<string>(el.GetArrayLength());
+                foreach (var item in el.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String)
+                    {
+                        var s = item.GetString();
+                        if (!string.IsNullOrEmpty(s))
+                        {
+                            fromJson.Add(s);
+                        }
+                    }
+                }
+                return fromJson;
+            default:
+                return Array.Empty<string>();
+        }
     }
 
     /// <summary>

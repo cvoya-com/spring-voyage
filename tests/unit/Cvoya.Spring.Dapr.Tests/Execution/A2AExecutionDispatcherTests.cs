@@ -1405,6 +1405,76 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
+    public void MapA2AResponseToOutcome_ReadsToolCallsAndStderrArtifacts()
+    {
+        // #3124: the sidecar surfaces the stream-json tool calls (newline-
+        // joined, well-known artifactId "tool-calls") and captured stderr
+        // (artifactId "stderr") as dedicated A2A artifacts. The mapper lifts
+        // both onto the diagnostics bag so the dispatch coordinator can emit
+        // ToolCall / RuntimeLog activities.
+        var response = new AgentTask
+        {
+            Id = "task-1",
+            Status = new AgentTaskStatus { State = TaskState.Completed },
+            Artifacts =
+            [
+                new Artifact
+                {
+                    ArtifactId = Guid.NewGuid().ToString(),
+                    Parts = [new TextPart { Text = "the reply" }],
+                },
+                new Artifact
+                {
+                    ArtifactId = "tool-calls",
+                    Parts = [new TextPart { Text = "sv.messaging.send\nsv.memory.write" }],
+                },
+                new Artifact
+                {
+                    ArtifactId = "stderr",
+                    Parts = [new TextPart { Text = "a warning line from the CLI" }],
+                },
+            ],
+        };
+
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 2, agentId: "agent-1", containerId: null,
+            BuildPayloadRendererRegistry());
+
+        var toolCalls = outcome.Diagnostics[RuntimeOutcome.StreamToolCallsKey]
+            .ShouldBeAssignableTo<IReadOnlyList<string>>();
+        toolCalls!.ShouldBe(new[] { "sv.messaging.send", "sv.memory.write" });
+        outcome.Diagnostics[RuntimeOutcome.RuntimeStderrKey].ShouldBe("a warning line from the CLI");
+    }
+
+    [Fact]
+    public void MapA2AResponseToOutcome_NoStreamArtifacts_OmitsToolCallAndStderrDiagnostics()
+    {
+        // A text-mode runtime (or a turn that invoked no tools and produced no
+        // stderr) carries neither artifact — the diagnostics omit both keys so
+        // the coordinator emits no ToolCall / RuntimeLog events.
+        var response = new AgentTask
+        {
+            Id = "task-1",
+            Status = new AgentTaskStatus { State = TaskState.Completed },
+            Artifacts =
+            [
+                new Artifact
+                {
+                    ArtifactId = Guid.NewGuid().ToString(),
+                    Parts = [new TextPart { Text = "just a reply" }],
+                },
+            ],
+        };
+
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null,
+            BuildPayloadRendererRegistry());
+
+        outcome.Diagnostics.ShouldNotContainKey(RuntimeOutcome.StreamToolCallsKey);
+        outcome.Diagnostics.ShouldNotContainKey(RuntimeOutcome.RuntimeStderrKey);
+    }
+
+    [Fact]
     public async Task DispatchAsync_DefaultHostingMode_IsPersistent()
     {
         // Ensure that AgentExecutionConfig with no explicit hosting defaults to Persistent (#2085)

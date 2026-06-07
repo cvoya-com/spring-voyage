@@ -96,41 +96,67 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task ContributeBundleAsync_ReturnsAgentsMdAndMcpJsonFiles()
+    public async Task ContributeBundleAsync_ReturnsAgentsMdAndCodexConfigToml()
     {
-        // ADR-0055 §3: launcher-owned in-workspace files live in the
-        // bootstrap contribution, not on the launch spec. ADR-0057 §1:
-        // the `.mcp.json` MCP server entry is `command`-typed (stdio),
-        // not `http`-typed — the CLI spawns the sidecar binary in
-        // MCP-server mode per turn rather than dialling the worker
-        // across the network.
+        // #3122: Codex discovers MCP servers from `$CODEX_HOME/config.toml`,
+        // NOT from `.mcp.json`. ADR-0055 §3: launcher-owned in-workspace files
+        // live in the bootstrap contribution. ADR-0057 §1: the MCP server
+        // entry is `command`-typed (stdio) — the CLI spawns the sidecar binary
+        // in MCP-server mode per turn rather than dialling the worker over HTTP.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),
             TestContext.Current.CancellationToken);
 
-        contribution.Files.Keys.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
+        contribution.Files.Keys.ShouldBe(new[] { "AGENTS.md", ".codex/config.toml" }, ignoreOrder: true);
         contribution.Files["AGENTS.md"].ShouldBe(TestAssembledSystemPrompt);
 
-        var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
-        var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
+        var toml = contribution.Files[".codex/config.toml"];
 
-        server.GetProperty("command").GetString().ShouldBe("node");
-        var args = server.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
-        args.ShouldBe(new[] { "/opt/spring-voyage/sidecar/dist/cli.js", "mcp" });
+        // The single platform server table, stdio shape.
+        toml.ShouldContain("[mcp_servers.spring-voyage]");
+        toml.ShouldContain("command = \"node\"");
+        toml.ShouldContain("args = [\"/opt/spring-voyage/sidecar/dist/cli.js\", \"mcp\"]");
 
-        var env = server.GetProperty("env");
-        env.GetProperty("SPRING_MCP_PROXY_URL").GetString().ShouldBe(BundleContextMcpEndpoint);
-        env.GetProperty("SPRING_WORKSPACE_PATH").GetString()
-            .ShouldBe(AgentWorkspaceContract.BuildMountPath(
-                LauncherCallbackTestSupport.DefaultAgentAddress.Path));
+        // Static env block carries the proxy URL + workspace path.
+        toml.ShouldContain("[mcp_servers.spring-voyage.env]");
+        toml.ShouldContain($"SPRING_MCP_PROXY_URL = \"{BundleContextMcpEndpoint}\"");
+        toml.ShouldContain(
+            "SPRING_WORKSPACE_PATH = \"" +
+            AgentWorkspaceContract.BuildMountPath(LauncherCallbackTestSupport.DefaultAgentAddress.Path) +
+            "\"");
 
-        // ADR-0057 §3: no Authorization header / remote URL — the CLI
-        // never sees the per-turn token; only the spawned
-        // MCP-server-mode child holds it.
-        server.TryGetProperty("headers", out _).ShouldBeFalse();
-        server.TryGetProperty("url", out _).ShouldBeFalse();
+        // #3122 / #3000: the per-turn token path rides `env_vars` (forwarded
+        // from Codex's own process env into the MCP child), NOT the static
+        // `env` block (which is fixed at bundle-build time and cannot carry a
+        // per-turn value). This is what gives Codex per-turn token isolation.
+        toml.ShouldContain("env_vars = [\"SPRING_MCP_TOKEN_PATH\"]");
+        toml.ShouldNotContain("SPRING_MCP_TOKEN_PATH = ");
 
-        contribution.PlatformFilePaths.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
+        // ADR-0057 §3: no HTTP transport / bearer token in the config — the
+        // CLI never sees the per-turn token; only the spawned MCP-server-mode
+        // child holds it. (Match a `url =` key on its own line so the
+        // `SPRING_MCP_PROXY_URL` env key, which is the stdio proxy endpoint,
+        // does not trip the assertion.)
+        System.Text.RegularExpressions.Regex.IsMatch(
+            toml, @"^\s*url\s*=", System.Text.RegularExpressions.RegexOptions.Multiline)
+            .ShouldBeFalse("the stdio MCP server must not declare an HTTP `url` transport");
+        toml.ShouldNotContain("bearer_token");
+
+        contribution.PlatformFilePaths.ShouldBe(new[] { "AGENTS.md", ".codex/config.toml" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_PointsCodexHomeAtWorkspaceConfigDir()
+    {
+        // #3122: CODEX_HOME must resolve to the same `.codex` dir the bundle
+        // writes `config.toml` into, so the CLI reads the platform MCP server.
+        // Anchored under the per-agent workspace mount so it survives restart.
+        var context = LauncherCallbackTestSupport.CreateContext();
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["CODEX_HOME"].ShouldBe(
+            $"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.codex");
     }
 
     [Fact]
@@ -164,6 +190,9 @@ public class CodexLauncherTests
         {
             "codex",
             "exec",
+            // #3123: `--json` makes codex exec emit its JSONL event stream,
+            // which the sidecar parses (SPRING_AGENT_OUTPUT_FORMAT=stream-json).
+            "--json",
             "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check",
         });
@@ -188,20 +217,19 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_DoesNotSetOutputFormatJsonHint()
+    public async Task PrepareAsync_SetsOutputFormatStreamJsonHint()
     {
-        // #2119 / #2226: Codex stays on the sidecar's default `text` output
-        // mode — `codex exec` writes the assistant reply to stdout as clean
-        // prose. The launcher must NOT set SPRING_AGENT_OUTPUT_FORMAT=json,
-        // which would route Codex's stdout through `parseCliJsonResult`
-        // (built for Claude's single-object `--output-format json` shape) and
-        // surface a parse miss / wall of JSON. Codex's own `--json` JSONL
-        // event parsing is tracked in #3123.
+        // #3123: `codex exec --json` emits Codex's JSONL event stream, so the
+        // launcher sets SPRING_AGENT_OUTPUT_FORMAT=stream-json — the sidecar's
+        // shape-driven parser recognises Codex's events (thread.started /
+        // turn.started / item.completed / turn.completed) alongside the
+        // Claude/Gemini schemas. It must NOT be `json` (that path is built for
+        // Claude's single-object `--output-format json` result).
         var context = LauncherCallbackTestSupport.CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_AGENT_OUTPUT_FORMAT");
+        prep.EnvironmentVariables["SPRING_AGENT_OUTPUT_FORMAT"].ShouldBe("stream-json");
     }
 
     [Fact]
@@ -222,14 +250,19 @@ public class CodexLauncherTests
     public async Task ContributeBundleAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
         // ADR-0054: one MCP server serves every sv.* tool — sv.messaging.*
-        // included. The bundle no longer writes a second messaging server.
+        // included. The config.toml carries exactly one `[mcp_servers.<name>]`
+        // table (#3122): the platform's `spring-voyage` server.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),
             TestContext.Current.CancellationToken);
 
-        var mcpServers = GetMcpServers(contribution);
-        mcpServers.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(new[] { "spring-voyage" });
+        var toml = contribution.Files[".codex/config.toml"];
+        var serverTables = System.Text.RegularExpressions.Regex
+            .Matches(toml, @"^\[mcp_servers\.([A-Za-z0-9_-]+)\]\s*$",
+                System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .ToArray();
+        serverTables.ShouldBe(new[] { "spring-voyage" });
     }
 
     [Fact]
@@ -356,7 +389,11 @@ public class CodexLauncherTests
         fragment.ShouldContain("`codex`");
         fragment.ShouldContain("$SPRING_WORKSPACE_PATH");
         fragment.ShouldContain("AGENTS.md");
-        fragment.ShouldContain(".mcp.json");
+        // #3122: Codex reads its MCP server set from config.toml under
+        // $CODEX_HOME, not from .mcp.json.
+        fragment.ShouldContain("config.toml");
+        fragment.ShouldContain("$CODEX_HOME");
+        fragment.ShouldNotContain(".mcp.json");
         fragment.ShouldNotContain("worktree");
 
         // #2742: the launcher fragment is CLI-universal, not image-
@@ -387,11 +424,5 @@ public class CodexLauncherTests
             Definition: definition,
             McpEndpoint: BundleContextMcpEndpoint,
             AssembledSystemPrompt: assembledSystemPrompt);
-    }
-
-    private static JsonElement GetMcpServers(AgentBootstrapContribution contribution)
-    {
-        using var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]);
-        return parsed.RootElement.GetProperty("mcpServers").Clone();
     }
 }
