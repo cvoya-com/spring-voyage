@@ -164,6 +164,114 @@ describe("parseStreamJson — Gemini stream-json", () => {
   });
 });
 
+describe("parseStreamJson — Codex exec --json", () => {
+  it("reconstructs the reply from the agent_message item and reads token usage", () => {
+    const stdout = ndjson(
+      { type: "thread.started", thread_id: "11111111-2222-3333-4444-555555555555" },
+      { type: "turn.started" },
+      {
+        type: "item.completed",
+        item: { id: "item_0", type: "agent_message", text: "hello from codex" },
+      },
+      {
+        type: "turn.completed",
+        usage: {
+          input_tokens: 1200,
+          cached_input_tokens: 300,
+          output_tokens: 42,
+          reasoning_output_tokens: 8,
+        },
+      },
+    );
+
+    const parsed = parseStreamJson(stdout);
+
+    // The agent_message item's text is the authoritative reply, NOT the JSON wall.
+    assert.equal(parsed.reply, "hello from codex");
+    assert.ok(parsed.cost, "Codex token usage should yield a token-only cost");
+    // Codex reports no USD cost — costUsd is 0 (host treats as free) but
+    // tokens are captured. cached_input folds into input; reasoning_output
+    // folds into output.
+    assert.equal(parsed.cost!.costUsd, 0);
+    assert.equal(parsed.cost!.inputTokens, 1200 + 300);
+    assert.equal(parsed.cost!.outputTokens, 42 + 8);
+    // turn.completed carries no model id — host fills it from the agent def.
+    assert.equal(parsed.cost!.model, null);
+    assert.equal(parsed.isError, false);
+  });
+
+  it("surfaces mcp_tool_call items as tool calls (by fully-qualified tool name)", () => {
+    const stdout = ndjson(
+      { type: "thread.started", thread_id: "t1" },
+      { type: "turn.started" },
+      {
+        type: "item.completed",
+        item: {
+          id: "item_0",
+          type: "mcp_tool_call",
+          server: "spring-voyage",
+          tool: "sv.messaging.send",
+          status: "completed",
+        },
+      },
+      {
+        type: "item.completed",
+        item: { id: "item_1", type: "agent_message", text: "done" },
+      },
+      { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+    );
+
+    const parsed = parseStreamJson(stdout);
+
+    assert.equal(parsed.reply, "done");
+    assert.deepEqual(
+      parsed.toolCalls.map((c) => c.name),
+      ["sv.messaging.send"],
+    );
+  });
+
+  it("flags a turn.failed event and carries its error message", () => {
+    const stdout = ndjson(
+      { type: "thread.started", thread_id: "t1" },
+      { type: "turn.started" },
+      { type: "turn.failed", error: { message: "model overloaded" } },
+    );
+
+    const parsed = parseStreamJson(stdout);
+
+    assert.equal(parsed.isError, true);
+    assert.equal(parsed.errorMessage, "model overloaded");
+  });
+
+  it("counts a tool call once: ignores item.started, keys on item.completed", () => {
+    const stdout = ndjson(
+      { type: "thread.started", thread_id: "t1" },
+      {
+        // A streamed item.started for the same call must NOT add a duplicate.
+        type: "item.started",
+        item: { id: "item_0", type: "mcp_tool_call", tool: "sv.memory.write" },
+      },
+      {
+        type: "item.completed",
+        item: { id: "item_0", type: "mcp_tool_call", tool: "sv.memory.write", status: "completed" },
+      },
+      {
+        type: "item.completed",
+        item: { id: "item_1", type: "agent_message", text: "ok" },
+      },
+      { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+    );
+
+    const parsed = parseStreamJson(stdout);
+
+    assert.equal(parsed.reply, "ok");
+    assert.deepEqual(
+      parsed.toolCalls.map((c) => c.name),
+      ["sv.memory.write"],
+    );
+  });
+});
+
 describe("parseStreamJson — robustness", () => {
   it("falls back to raw stdout when the output is not JSON", () => {
     const stdout = "plain assistant text, not ndjson";

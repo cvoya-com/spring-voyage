@@ -371,6 +371,96 @@ public class AgentDispatchCoordinatorTests
     }
 
     // ------------------------------------------------------------------
+    // #3124: ingest parsed sidecar stream-json events as activity events
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task RunDispatchAsync_StreamToolCalls_EmitsOneToolCallActivityPerName_BeforeTerminal()
+    {
+        // #3124: the dispatcher lifts the sidecar's parsed tool-call names onto
+        // the diagnostics bag; the coordinator emits one ToolCall activity per
+        // name so a CLI-runtime turn is observable in the Activity feed and via
+        // `spring tail`. They land before the terminal, correlated by thread id.
+        var inbound = MakeAgentMessage();
+        var outcome = new RuntimeOutcome(
+            ExitCode: 0,
+            Duration: TimeSpan.FromMilliseconds(500),
+            ReasoningTrace: null,
+            Diagnostics: new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [RuntimeOutcome.ToolCallCountKey] = 2,
+                [RuntimeOutcome.StreamToolCallsKey] =
+                    new[] { "sv.messaging.send", "sv.memory.write" },
+            });
+
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(outcome);
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        var toolCalls = emitted.Where(e => e.EventType == ActivityEventType.ToolCall).ToList();
+        toolCalls.Count.ShouldBe(2);
+        toolCalls.Select(e => e.Details!.Value.GetProperty("toolName").GetString())
+            .ShouldBe(new[] { "sv.messaging.send", "sv.memory.write" });
+        // Order preserved via callIndex.
+        toolCalls[0].Details!.Value.GetProperty("callIndex").GetInt32().ShouldBe(0);
+        toolCalls[1].Details!.Value.GetProperty("callIndex").GetInt32().ShouldBe(1);
+        // Correlated by thread id alongside the rest of the turn.
+        toolCalls.ShouldAllBe(e => e.CorrelationId == inbound.ThreadId);
+
+        // All ToolCall activities land before the terminal RuntimeCompleted.
+        var lastToolIdx = emitted.FindLastIndex(e => e.EventType == ActivityEventType.ToolCall);
+        var terminalIdx = emitted.FindIndex(e => e.EventType == ActivityEventType.RuntimeCompleted);
+        lastToolIdx.ShouldBeLessThan(terminalIdx);
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_RuntimeStderr_EmitsRuntimeLogWarning()
+    {
+        // #3124: captured non-structured stderr surfaces as a RuntimeLog at
+        // Warning so it is never silently dropped from the Activity feed.
+        var inbound = MakeAgentMessage();
+        var outcome = new RuntimeOutcome(
+            ExitCode: 0,
+            Duration: TimeSpan.FromMilliseconds(500),
+            ReasoningTrace: null,
+            Diagnostics: new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [RuntimeOutcome.ToolCallCountKey] = 1,
+                [RuntimeOutcome.RuntimeStderrKey] = "npm warn deprecated something",
+            });
+
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(outcome);
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        var log = emitted.Where(e => e.EventType == ActivityEventType.RuntimeLog).ShouldHaveSingleItem();
+        log.Severity.ShouldBe(ActivitySeverity.Warning);
+        log.CorrelationId.ShouldBe(inbound.ThreadId);
+        log.Details.ShouldNotBeNull()
+            .GetProperty("body").GetString().ShouldBe("npm warn deprecated something");
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_NoStreamDiagnostics_EmitsNoToolCallOrRuntimeLog()
+    {
+        // A text-mode runtime carries neither stream diagnostic — no ToolCall /
+        // RuntimeLog noise on the stream.
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Success());
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        emitted.ShouldNotContain(e => e.EventType == ActivityEventType.ToolCall);
+        emitted.ShouldNotContain(e => e.EventType == ActivityEventType.RuntimeLog);
+    }
+
+    // ------------------------------------------------------------------
     // #3075: clone cost roll-up + initiative classification
     // ------------------------------------------------------------------
 

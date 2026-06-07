@@ -1665,6 +1665,8 @@ public class A2AExecutionDispatcher(
         string? a2aTaskId = null;
         string? a2aTaskState = null;
         TurnCostMetadata? cost = null;
+        IReadOnlyList<string>? streamToolCalls = null;
+        string? runtimeStderr = null;
 
         // A2A v0.3 collapses the v1 PayloadCase oneof into a discriminator-based
         // class hierarchy: A2AResponse is the base, AgentTask / AgentMessage are
@@ -1680,6 +1682,14 @@ public class A2AExecutionDispatcher(
                 // task metadata when the launcher runs the CLI in JSON output
                 // mode. Absent for text-mode runtimes — `cost` stays null.
                 cost = TryReadCostMetadata(task);
+                // #3124: the sidecar's stream-json parser surfaces the tool
+                // calls and stderr it observed as dedicated A2A artifacts
+                // (well-known artifactIds `tool-calls` / `stderr`). Lift them
+                // onto the diagnostics bag so the dispatch coordinator can emit
+                // ToolCall / RuntimeLog activities — making a CLI-runtime turn
+                // observable in the portal Activity feed and via `spring tail`.
+                streamToolCalls = TryReadToolCallsArtifact(task);
+                runtimeStderr = TryReadStderrArtifact(task);
                 break;
 
             case AgentMessage msg:
@@ -1712,6 +1722,18 @@ public class A2AExecutionDispatcher(
         if (a2aTaskState is not null)
         {
             diagnostics["a2aTaskState"] = a2aTaskState;
+        }
+
+        // #3124: surface the parsed stream-json tool calls + stderr so the
+        // dispatch coordinator can emit ToolCall / RuntimeLog activities.
+        if (streamToolCalls is { Count: > 0 })
+        {
+            diagnostics[RuntimeOutcome.StreamToolCallsKey] = streamToolCalls;
+        }
+
+        if (!string.IsNullOrEmpty(runtimeStderr))
+        {
+            diagnostics[RuntimeOutcome.RuntimeStderrKey] = runtimeStderr;
         }
 
         // #3073: surface the turn's cost on the diagnostics bag so the dispatch
@@ -1784,6 +1806,86 @@ public class A2AExecutionDispatcher(
             ? ReadInt(outEl) : 0;
 
         return new TurnCostMetadata(costUsd, inputTokens, outputTokens, model);
+    }
+
+    /// <summary>
+    /// Well-known A2A artifact id the sidecar tags its parsed-stream tool-call
+    /// list with (<c>src/Cvoya.Spring.AgentSidecar/src/a2a.ts</c>) — one tool
+    /// name per line. Read by <see cref="TryReadToolCallsArtifact"/> (#3124).
+    /// </summary>
+    private const string ToolCallsArtifactId = "tool-calls";
+
+    /// <summary>
+    /// Well-known A2A artifact id the sidecar tags a turn's captured stderr
+    /// with. Read by <see cref="TryReadStderrArtifact"/> (#3124).
+    /// </summary>
+    private const string StderrArtifactId = "stderr";
+
+    /// <summary>
+    /// Reads the sidecar's <c>tool-calls</c> artifact — the newline-joined
+    /// tool / skill names its stream-json parser observed — into an ordered
+    /// list (#3124). Returns <c>null</c> when the task carries no such artifact
+    /// (text-mode runtime, or a turn that invoked no tools). Blank lines are
+    /// dropped; order is preserved.
+    /// </summary>
+    private static IReadOnlyList<string>? TryReadToolCallsArtifact(AgentTask task)
+    {
+        var text = ReadArtifactText(task, ToolCallsArtifactId);
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        var names = text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return names.Length > 0 ? names : null;
+    }
+
+    /// <summary>
+    /// Reads the sidecar's <c>stderr</c> artifact — the turn's captured
+    /// non-structured runtime output — as text (#3124). Returns <c>null</c>
+    /// when the turn produced no stderr.
+    /// </summary>
+    private static string? TryReadStderrArtifact(AgentTask task)
+    {
+        var text = ReadArtifactText(task, StderrArtifactId);
+        return string.IsNullOrEmpty(text) ? null : text;
+    }
+
+    /// <summary>
+    /// Concatenates the text of every <see cref="TextPart"/> on the artifact
+    /// with the given <paramref name="artifactId"/>. Returns <c>null</c> when
+    /// no such artifact is present. Non-text parts are ignored — the sidecar
+    /// only emits text parts on these informational artifacts.
+    /// </summary>
+    private static string? ReadArtifactText(AgentTask task, string artifactId)
+    {
+        var artifacts = task.Artifacts;
+        if (artifacts is null)
+        {
+            return null;
+        }
+
+        foreach (var artifact in artifacts)
+        {
+            if (!string.Equals(artifact.ArtifactId, artifactId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            foreach (var part in artifact.Parts)
+            {
+                if (part is TextPart textPart && !string.IsNullOrEmpty(textPart.Text))
+                {
+                    sb.Append(textPart.Text);
+                }
+            }
+
+            return sb.Length > 0 ? sb.ToString() : null;
+        }
+
+        return null;
     }
 
     /// <summary>

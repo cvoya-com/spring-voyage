@@ -231,6 +231,66 @@ describe("A2AHandler.handle", () => {
     assert.equal(metadata["sv.usage.output_tokens"], 500);
   });
 
+  it("parses a Codex --json result: reply from agent_message, tokens on metadata, mcp_tool_call surfaced (#3123)", async () => {
+    // With outputFormat "stream-json" the same shape-driven parser handles
+    // Codex's JSONL: the agent_message item becomes the reply artifact, an
+    // mcp_tool_call item becomes a `tool-calls` artifact, and the
+    // turn.completed token usage rides on the A2A task `metadata`. Codex
+    // reports no USD cost, so sv.cost.usd is 0 but token usage is present.
+    const events = [
+      { type: "thread.started", thread_id: "11111111-2222-3333-4444-555555555555" },
+      { type: "turn.started" },
+      {
+        type: "item.completed",
+        item: { id: "item_0", type: "mcp_tool_call", server: "spring-voyage", tool: "sv.messaging.send" },
+      },
+      {
+        type: "item.completed",
+        item: { id: "item_1", type: "agent_message", text: "codex parsed answer" },
+      },
+      {
+        type: "turn.completed",
+        usage: { input_tokens: 1200, cached_input_tokens: 300, output_tokens: 50, reasoning_output_tokens: 0 },
+      },
+    ];
+    const ndjson = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
+    const handler = new A2AHandler({
+      agentName: "codex-agent",
+      agentArgv: [
+        PROCESS_NODE,
+        "-e",
+        `process.stdout.write(${JSON.stringify(ndjson)})`,
+      ],
+      port: 8999,
+      cancelGraceMs: 200,
+      spawnEnv: process.env,
+      outputFormat: "stream-json",
+    });
+
+    const res = await handler.handle({
+      jsonrpc: "2.0",
+      method: "message/send",
+      params: { message: { parts: [{ text: "ping" }] } },
+      id: "codex-1",
+    });
+
+    const task = res.result as Record<string, unknown>;
+    assert.equal((task["status"] as Record<string, unknown>)["state"], "completed");
+    const artifacts = task["artifacts"] as Array<{ artifactId: string; parts: Array<{ text: string }> }>;
+    // The reply is the agent_message text, not the JSON wall.
+    assert.equal(artifacts[0]?.parts[0]?.text, "codex parsed answer");
+    // The mcp_tool_call surfaces by its fully-qualified tool name.
+    const toolArtifact = artifacts.find((a) => a.artifactId === "tool-calls");
+    assert.ok(toolArtifact, "expected a tool-calls artifact");
+    assert.equal(toolArtifact!.parts[0]?.text, "sv.messaging.send");
+    // Token usage rides on metadata; Codex reports no USD cost (0).
+    const metadata = task["metadata"] as Record<string, unknown>;
+    assert.ok(metadata, "expected token metadata on the task");
+    assert.equal(metadata["sv.cost.usd"], 0);
+    assert.equal(metadata["sv.usage.input_tokens"], 1200 + 300);
+    assert.equal(metadata["sv.usage.output_tokens"], 50);
+  });
+
   it("stream-json: an errored terminal result fails the task even on a clean exit (#2226)", async () => {
     // A CLI can exit 0 while reporting an in-band error in its terminal
     // result event. The bridge must surface that as task failure, not a

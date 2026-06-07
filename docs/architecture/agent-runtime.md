@@ -120,7 +120,9 @@ into every CLI-based agent image. The same binary runs in two modes:
   the CLI;
 - propagates cancellation (`SIGTERM` → `SIGKILL`).
 
-**MCP-server mode** (per-turn child, spawned by the CLI's `.mcp.json`,
+**MCP-server mode** (per-turn child, spawned by the CLI's MCP config —
+`.mcp.json` for Claude Code / Gemini, `$CODEX_HOME/config.toml`
+`[mcp_servers.spring-voyage]` for Codex (Codex does not read `.mcp.json`),
 [ADR-0057](../decisions/0057-sidecar-local-mcp-server.md)):
 
 - speaks MCP JSON-RPC 2.0 over stdio (no HTTP);

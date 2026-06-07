@@ -114,4 +114,28 @@ public sealed record RuntimeOutcome(
 
     /// <summary>Conventional <see cref="Diagnostics"/> key: the model id the turn billed against (string).</summary>
     public const string ModelKey = "model";
+
+    /// <summary>
+    /// Conventional key on <see cref="Diagnostics"/> carrying the tool / skill
+    /// names a CLI-runtime turn invoked, as the sidecar's stream-json parser
+    /// observed them (#3124). Value is an ordered list of names
+    /// (<c>IReadOnlyList&lt;string&gt;</c>); the dispatch coordinator emits one
+    /// <c>ToolCall</c> activity per name so a CLI-runtime invocation
+    /// (<c>claude-code</c>, <c>gemini</c>, <c>codex</c>) is observable in the
+    /// portal Activity feed and via <c>spring tail</c>. Absent for runtimes
+    /// that surface no tool calls (text-mode, or a turn that called none).
+    /// Distinct from <see cref="ToolCallCountKey"/>, which is the worker-side
+    /// MCP session count used to decide silent-completion.
+    /// </summary>
+    public const string StreamToolCallsKey = "streamToolCalls";
+
+    /// <summary>
+    /// Conventional key on <see cref="Diagnostics"/> carrying a CLI-runtime
+    /// turn's captured stderr text (#3124), surfaced by the sidecar as a
+    /// dedicated <c>stderr</c> A2A artifact. The dispatch coordinator emits it
+    /// as a <c>RuntimeLog</c> activity (at <c>Warning</c>) so non-structured
+    /// runtime output is never silently dropped from the Activity feed. Absent
+    /// when the turn produced no stderr.
+    /// </summary>
+    public const string RuntimeStderrKey = "runtimeStderr";
 }

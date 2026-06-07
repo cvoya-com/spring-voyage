@@ -2,15 +2,18 @@
 // See LICENSE.md in the project root for full license terms.
 
 // Parses the newline-delimited JSON (NDJSON) "stream-json" output the Claude
-// Code and Gemini CLIs emit, so the A2A sidecar surfaces the assistant's reply
-// — plus tool-use status and the turn's cost/usage — instead of storing the
-// raw NDJSON wall as a single artifact (issue #2226).
+// Code, Gemini, and Codex CLIs emit, so the A2A sidecar surfaces the
+// assistant's reply — plus tool-use status and the turn's cost/usage —
+// instead of storing the raw NDJSON wall as a single artifact (issues #2226,
+// #3123).
 //
-// Two upstream schemas are handled. They share a `{"type":"result", ...}`
-// terminal event but otherwise diverge, so the parser is shape-driven (it
+// Three upstream schemas are handled. Claude/Gemini share a
+// `{"type":"result", ...}` terminal event; Codex uses turn/item lifecycle
+// events instead. They otherwise diverge, so the parser is shape-driven (it
 // inspects each event's fields) rather than keyed on a per-launcher schema
 // hint — the bridge already passes `SPRING_AGENT_OUTPUT_FORMAT=stream-json`
-// (the format), and one parser covering both keeps the bridge agent-agnostic.
+// (the format), and one parser covering all three keeps the bridge
+// agent-agnostic.
 //
 // Claude Code (`claude --print --output-format stream-json --verbose`,
 // verified against claude-code 2.1.x):
@@ -40,6 +43,24 @@
 //   Gemini's terminal `result` has NO `result` text field and NO USD cost —
 //   only token `stats`. The reply is reconstructed by concatenating the
 //   assistant `message` events' `content`; cost is token-only (costUsd: 0).
+//
+// Codex (`codex exec --json`, verified against codex-cli — issue #3123):
+//
+//   {"type":"thread.started","thread_id":"<uuid>"}
+//   {"type":"turn.started"}
+//   {"type":"item.completed","item":{"id":"item_0","type":"mcp_tool_call",
+//                                    "server":"spring-voyage","tool":"sv.messaging.send", ...}}
+//   {"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"<reply>"}}
+//   {"type":"turn.completed","usage":{"input_tokens":...,"cached_input_tokens":...,
+//                                     "output_tokens":...,"reasoning_output_tokens":...}}
+//
+//   Codex's schema is a third shape: turn/item lifecycle events rather than
+//   `assistant`/`message`/`result`. The authoritative reply is the
+//   `agent_message` item's `text`; `mcp_tool_call` items surface as tool
+//   calls; the terminal `turn.completed.usage` carries token counts but NO
+//   USD cost (Codex reports none), so cost is token-only (costUsd: 0), the
+//   same treatment the Gemini path gives. A `turn.failed` event (with an
+//   `error`) flags the turn as failed.
 
 import { parseCliJsonResult, type TurnCost } from "./cost.js";
 
@@ -145,10 +166,12 @@ function readClaudeAssistantEvent(event: Record<string, unknown>): {
 }
 
 /**
- * Parses NDJSON `stream-json` stdout (Claude Code or Gemini) into a reply, an
- * optional {@link TurnCost}, and the tool calls observed. Never throws: any
- * malformed / empty input yields `{ reply: <raw stdout>, cost: null,
- * toolCalls: [], isError: false }` so the turn still returns the CLI's output.
+ * Parses NDJSON `stream-json` stdout (Claude Code, Gemini, or Codex) into a
+ * reply, an optional {@link TurnCost}, and the tool calls observed. The parser
+ * is shape-driven (it inspects each event's fields), so one pass handles all
+ * three upstream schemas. Never throws: any malformed / empty input yields
+ * `{ reply: <raw stdout>, cost: null, toolCalls: [], isError: false }` so the
+ * turn still returns the CLI's output.
  */
 export function parseStreamJson(stdout: string): ParsedStreamResult {
   const empty: ParsedStreamResult = {
@@ -204,6 +227,55 @@ export function parseStreamJson(stdout: string): ParsedStreamResult {
       if (name !== null) {
         toolCalls.push({ name });
       }
+      continue;
+    }
+
+    // Codex item event (#3123): `item.completed` wraps a typed `item`. An
+    // `agent_message` item carries the authoritative reply text; an
+    // `mcp_tool_call` (or `tool_call`) item is a tool invocation. We key on
+    // `item.completed` only (the terminal item state) so a call streamed via a
+    // separate `item.started` is not double-counted.
+    if (type === "item.completed") {
+      const item = asRecord(event["item"]);
+      if (item !== null) {
+        const itemType = item["type"];
+        if (itemType === "mcp_tool_call" || itemType === "tool_call" || itemType === "function_call") {
+          // Prefer the fully-qualified tool name; fall back to the bare
+          // tool / name field. Codex names it `tool` (with a `server`).
+          const name = asString(item["tool"]) ?? asString(item["name"]);
+          if (name !== null) {
+            toolCalls.push({ name });
+          }
+        } else if (itemType === "agent_message") {
+          const text = asString(item["text"]);
+          if (text !== null) {
+            resultText = text;
+          }
+        }
+      }
+      continue;
+    }
+
+    // Codex terminal events (#3123): `turn.completed` carries token `usage`
+    // (no USD cost); `turn.failed` carries an `error`. Distinct from the
+    // Claude/Gemini `result` shape handled below.
+    if (type === "turn.completed") {
+      if (cost === null) {
+        const codexCost = readCodexTurnUsage(event);
+        if (codexCost !== null) {
+          cost = codexCost;
+        }
+      }
+      continue;
+    }
+    if (type === "turn.failed") {
+      isError = true;
+      const error = asRecord(event["error"]);
+      errorMessage =
+        errorMessage ??
+        (error !== null ? asString(error["message"]) : null) ??
+        asString(event["error"]) ??
+        "Codex reported a failed turn.";
       continue;
     }
 
@@ -291,4 +363,34 @@ function readGeminiResultStats(event: Record<string, unknown>): TurnCost | null 
     }
   }
   return { costUsd: 0, inputTokens, outputTokens, model };
+}
+
+/**
+ * Builds a token-only {@link TurnCost} from a Codex `turn.completed` event's
+ * `usage` block (#3123). Codex reports token counts but no per-turn USD cost,
+ * so `costUsd` is 0 — the host treats the absence of a positive cost as "free"
+ * while still recording token usage, exactly as the Gemini path does.
+ *
+ * `cached_input_tokens` folds into the input total (it is a subset/companion
+ * of input the same way Claude's cache-read tokens are, per the cost.ts
+ * input-token convention); `reasoning_output_tokens` folds into output.
+ * Returns null when no usable token counts are present. Codex's
+ * `turn.completed` carries no model id, so `model` is null — the host fills it
+ * from the agent definition.
+ */
+function readCodexTurnUsage(event: Record<string, unknown>): TurnCost | null {
+  const usage = asRecord(event["usage"]);
+  if (usage === null) {
+    return null;
+  }
+  const inputTokens =
+    asNonNegativeInt(usage["input_tokens"]) +
+    asNonNegativeInt(usage["cached_input_tokens"]);
+  const outputTokens =
+    asNonNegativeInt(usage["output_tokens"]) +
+    asNonNegativeInt(usage["reasoning_output_tokens"]);
+  if (inputTokens === 0 && outputTokens === 0) {
+    return null;
+  }
+  return { costUsd: 0, inputTokens, outputTokens, model: null };
 }
