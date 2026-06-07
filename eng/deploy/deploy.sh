@@ -453,6 +453,44 @@ rewrite_ollama_component_endpoint() {
     chmod 0644 "${component_file}"
 }
 
+# Ensure Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath names a
+# directory that actually exists on this host before the worker starts. The
+# worker resolves <base>/profiles/<provider> for each dispatched agent and
+# hands that path to the host dispatcher as a Podman bind-mount source; if
+# <base> is unset, still the spring.env.example placeholder, or otherwise
+# missing on disk, Podman fails the agent's daprd sidecar with
+# `statfs <base>/profiles/<provider>: no such file or directory` (exit 125)
+# and the turn silently never completes (#3101).
+#
+# Bundle installs get this filled in by setup.sh, but the source-checkout
+# `deploy.sh init && deploy.sh up` flow never runs setup.sh, so resolve it
+# here the same way spring-voyage-host.sh resolves it for the dispatcher:
+# prefer the repo layout (eng/dapr/components/...), fall back to the bundle
+# layout (dapr/components/...). The `--local-ollama` path does its own
+# resolution + rewrite afterwards (configure_local_ollama_dapr_profile), so
+# this only has to make the *default* deploy point at a real tree. An
+# operator-set path that exists is left untouched.
+resolve_delegated_components_path() {
+    local configured="${Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath:-}"
+    if [[ -n "${configured}" && -d "${configured}" ]]; then
+        return 0
+    fi
+
+    local resolved="${REPO_ROOT}/eng/dapr/components/delegated-spring-voyage-agent"
+    if [[ ! -d "${resolved}" && -d "${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent" ]]; then
+        resolved="${REPO_ROOT}/dapr/components/delegated-spring-voyage-agent"
+    fi
+    [[ -d "${resolved}" ]] \
+        || die "delegated Dapr components directory not found under ${REPO_ROOT} (looked in eng/dapr/components/ and dapr/components/); set Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath in ${ENV_FILE} to an absolute path that exists on this host"
+
+    if [[ -z "${configured}" ]]; then
+        log "Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath unset; resolving to ${resolved}"
+    else
+        log "Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath '${configured}' does not exist on this host; resolving to ${resolved}"
+    fi
+    set_resolved_env_var Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath "${resolved}"
+}
+
 parse_up_options() {
     LOCAL_OLLAMA_REQUESTED=0
     LOCAL_OLLAMA_ENDPOINT=""
@@ -1297,6 +1335,12 @@ cmd_up() {
     # Resync the container clock before starting the stack so the GitHub
     # connector never signs App JWTs with a post-sleep-skewed clock (#2595).
     resync_podman_machine_clock
+    # Point the worker at a delegated-agent components dir that exists on this
+    # host before configure_local_ollama (which may copy + rewrite it) and
+    # before start_worker (#3101). Without this a source-checkout deploy hands
+    # the spring.env.example placeholder to Podman as a bind-mount source and
+    # every agent turn dies with `statfs .../profiles/<provider>: no such file`.
+    resolve_delegated_components_path
     configure_local_ollama
     ensure_network "${NETWORK_NAME}"
     # Tenant network must exist before start_ollama tries to dual-attach.

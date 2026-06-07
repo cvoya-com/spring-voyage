@@ -119,27 +119,47 @@ public static class ContainersEndpoints
             ContainerName: request.ContainerName,
             Entrypoint: request.Entrypoint);
 
-        if (request.Detached)
+        // A bind-mount source that does not exist on the host is a caller
+        // configuration error, not a transient runtime fault — surface it as a
+        // 422 carrying the actionable message rather than letting the runtime's
+        // exit-125 bubble out as a bodyless 500 (#3101). SendRunAsync on the
+        // worker side echoes this body, so the cause reaches the turn instead of
+        // an opaque "Dispatcher returned 500".
+        try
         {
+            if (request.Detached)
+            {
+                logger.LogInformation(
+                    EventIds.ContainerStartRequested,
+                    "Starting detached container image={Image}", request.Image);
+                var id = await runtime.StartAsync(config, cancellationToken);
+                return Results.Ok(new RunContainerResponse { Id = id });
+            }
+
             logger.LogInformation(
-                EventIds.ContainerStartRequested,
-                "Starting detached container image={Image}", request.Image);
-            var id = await runtime.StartAsync(config, cancellationToken);
-            return Results.Ok(new RunContainerResponse { Id = id });
+                EventIds.ContainerRunRequested,
+                "Running container image={Image}", request.Image);
+
+            var result = await runtime.RunAsync(config, cancellationToken);
+            return Results.Ok(new RunContainerResponse
+            {
+                Id = result.ContainerId,
+                ExitCode = result.ExitCode,
+                StandardOutput = result.StandardOutput,
+                StandardError = result.StandardError,
+            });
         }
-
-        logger.LogInformation(
-            EventIds.ContainerRunRequested,
-            "Running container image={Image}", request.Image);
-
-        var result = await runtime.RunAsync(config, cancellationToken);
-        return Results.Ok(new RunContainerResponse
+        catch (BindMountSourceMissingException ex)
         {
-            Id = result.ContainerId,
-            ExitCode = result.ExitCode,
-            StandardOutput = result.StandardOutput,
-            StandardError = result.StandardError,
-        });
+            logger.LogWarning(
+                EventIds.DispatcherRejected,
+                "Rejected container run: {Message}", ex.Message);
+            return Results.UnprocessableEntity(new DispatcherErrorResponse
+            {
+                Code = BindMountSourceMissingException.Code,
+                Message = ex.Message,
+            });
+        }
     }
 
     /// <summary>
