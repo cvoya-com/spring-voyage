@@ -154,20 +154,29 @@ jobs:
           elif [[ "$MARK_LATEST_INPUT" == "true" ]]; then
             mark_latest="true"
           else
-            # Detect annotated tag (release.sh --latest) vs lightweight tag.
-            # Retry up to 3 times: the workflow can start within milliseconds
-            # of the push, before GitHub's API indexes the tag object. A
-            # lightweight tag or any API failure leave mark_latest=false.
-            obj_type=""
+            # Read the `Mark-Latest: true` trailer off the annotated tag object
+            # that release.sh --latest writes (a lightweight tag carries no
+            # message, so it stays not-latest). Use the EXACT-match singular
+            # endpoint git/ref/tags/<tag>: the plural git/refs/tags/<tag> is a
+            # prefix match that returns a JSON ARRAY when same-day sibling tags
+            # exist (…-alpha.DATE alongside …-alpha.DATE.1), and `.object.type`
+            # on an array is null — which silently dropped the latest intent.
+            # Retry up to 3× while the result is empty: the workflow can start
+            # within milliseconds of the push, before the tag object is indexed.
+            obj_type=""; obj_sha=""
             for _attempt in 1 2 3; do
-              tag_ref_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" 2>/dev/null || true)"
-              obj_type="$(jq -r '.object.type // ""' <<<"$tag_ref_json" 2>/dev/null || true)"
+              ref_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" 2>/dev/null || true)"
+              obj_type="$(jq -r '.object.type // ""' <<<"$ref_json" 2>/dev/null || true)"
+              obj_sha="$(jq -r '.object.sha // ""' <<<"$ref_json" 2>/dev/null || true)"
               [[ -n "$obj_type" ]] && break
               echo "Tag ref not yet available (attempt ${_attempt}/3); retrying in 5s …"
               sleep 5
             done
-            if [[ "$obj_type" == "tag" ]]; then
-              mark_latest="true"
+            if [[ "$obj_type" == "tag" && -n "$obj_sha" ]]; then
+              tag_msg="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${obj_sha}" --jq '.message' 2>/dev/null || true)"
+              if grep -qiE '^[[:space:]]*Mark-Latest:[[:space:]]*true[[:space:]]*$' <<<"$tag_msg"; then
+                mark_latest="true"
+              fi
             fi
           fi
 

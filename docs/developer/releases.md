@@ -87,7 +87,7 @@ Use `eng/release/release.sh` to cut a release. The script pushes the tag, watche
 | `--plan` | Print the computed tag and exit 0; no tag pushed. |
 | `--force-retag` | Skip the idempotency guard (allows re-tagging an existing version). |
 
-**Changelog** (every release): `CHANGELOG.md`'s `[Unreleased]` section is generated from Conventional Commits by [`eng/release/update-changelog.sh`](../../eng/release/update-changelog.sh). `release.sh` runs it and refuses to tag while it is stale, so commit the refreshed file (via a PR) before cutting. Pre-release (`-alpha`/`-beta`/`-rc`) tags accumulate under `[Unreleased]`; a stable cut finalises that line into a `## [X.Y.Z]` section. Earlier history below the marker is hand-curated and frozen. See [Changelog](#changelog).
+**Changelog** (every release): `CHANGELOG.md`'s `[Unreleased]` section is generated from Conventional Commits by [`eng/release/update-changelog.sh`](../../eng/release/update-changelog.sh). `release.sh` regenerates it and **warns** if stale — advisory, not blocking, since the Release body is built from `docs/releases/` + a git-cliff delta over git history, not from `CHANGELOG.md`; commit the refreshed file (via a PR) when convenient. Pre-release (`-alpha`/`-beta`/`-rc`) tags accumulate under `[Unreleased]`; a stable cut finalises that line into a `## [X.Y.Z]` section. Earlier history below the marker is hand-curated and frozen. See [Changelog](#changelog).
 
 ### Marking a pre-release as latest
 
@@ -214,7 +214,7 @@ The container-registry tag is the prefix-stripped SemVer string (e.g., git tag `
 
 ## Changelog
 
-The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repository root, in [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) format. Its `[Unreleased]` section is **generated** from Conventional Commit subjects by [git-cliff](https://git-cliff.org) (config [`cliff.changelog.toml`](../../cliff.changelog.toml)) via [`eng/release/update-changelog.sh`](../../eng/release/update-changelog.sh); the hand-curated history below the marker is frozen. There is no per-PR changelog step — contributors write good Conventional Commits ([`CONTRIBUTING.md` § Commit messages and the changelog](../../CONTRIBUTING.md#commit-messages-and-the-changelog)), and `release.sh` regenerates and gates on the changelog at each release.
+The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repository root, in [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) format. Its `[Unreleased]` section is **generated** from Conventional Commit subjects by [git-cliff](https://git-cliff.org) (config [`cliff.changelog.toml`](../../cliff.changelog.toml)) via [`eng/release/update-changelog.sh`](../../eng/release/update-changelog.sh); the hand-curated history below the marker is frozen. There is no per-PR changelog step — contributors write good Conventional Commits ([`CONTRIBUTING.md` § Commit messages and the changelog](../../CONTRIBUTING.md#commit-messages-and-the-changelog)), and `release.sh` regenerates it and warns (advisory, non-blocking) at each release.
 
 ## Release notes
 
