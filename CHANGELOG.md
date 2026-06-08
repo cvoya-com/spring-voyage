@@ -65,6 +65,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Unblock local single-host agent turns — resolve components path + fail fast on missing bind-mount source ([#3101](https://github.com/cvoya-com/spring-voyage/pull/3101)) ([#3116](https://github.com/cvoya-com/spring-voyage/pull/3116))
 - **install,deploy:** Harden install/uninstall + smoke-test rootless port floor ([#3120](https://github.com/cvoya-com/spring-voyage/pull/3120))
 - **runtime,sidecar:** Make Codex dispatchable, fix false catalogue claims, parse stream-json (#2118/#2119/#3018/#2226) ([#3126](https://github.com/cvoya-com/spring-voyage/pull/3126))
+- **release:** Honor --latest on pre-releases; make changelog check advisory ([#3145](https://github.com/cvoya-com/spring-voyage/pull/3145))
 
 ### Refactor
 
