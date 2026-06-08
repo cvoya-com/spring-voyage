@@ -88,6 +88,10 @@ export const apiPost = <T>(path: string, body?: unknown) =>
 export const apiPut = <T>(path: string, body?: unknown) =>
   request<T>("PUT", path, { body });
 
+/** PATCH JSON. Throws ApiError on non-2xx. */
+export const apiPatch = <T>(path: string, body?: unknown) =>
+  request<T>("PATCH", path, { body });
+
 /** DELETE. 404 is acceptable (idempotent cleanup). */
 export const apiDelete = (path: string) =>
   request<void>("DELETE", path, { expect: [200, 202, 204, 404] });
@@ -225,20 +229,46 @@ export async function deleteAgent(idOrHex: string): Promise<void> {
  * the unit the target sits in. A freshly-created unit has no human members,
  * so a UI / API send to its agent returns 403 `NoReachableHat`. This mirrors
  * the CLI suite's `e2e::add_caller_hat`: resolve the caller's primary Hat
- * from `GET /users/me/humans`, then POST it as a unit member.
+ * from `GET /users/me/humans` (minting one via a unit ACL grant when the set
+ * is empty), then POST it as a unit team member.
  *
- * Returns the humanId of the Hat that was added (or null when the tenant
- * exposes no caller Hat, e.g. an auth mode without a bound human — the
- * caller should then `test.skip`).
+ * The mint-when-empty fallback matters because the caller's Hat set is not
+ * stable: Hats are created lazily, and #2972's orphaned-Hat GC reclaims any
+ * Hat whose anchoring unit was just deleted — so between two test runs (or
+ * right after a prior test's cleanup) `/me/humans` can come back empty even
+ * though the deployment does have a caller TenantUser. Without the mint the
+ * LLM specs would skip nondeterministically depending on incidental leftover
+ * Hats. Granting a unit ACL permission upserts a human row bound to the
+ * calling TenantUser (OSS) — i.e. one of the caller's Hats — exactly as the
+ * CLI helper does.
+ *
+ * Returns the humanId of the Hat that was added, or null only when even the
+ * mint fails (e.g. an auth mode with no caller TenantUser) — the caller
+ * should then `test.skip`.
  */
 export async function addCallerHat(unitHex: string): Promise<string | null> {
   type MeHuman = { humanId: string; isPrimary?: boolean };
   const humans = await apiGet<MeHuman[]>("/api/v1/tenant/users/me/humans").catch(
     () => [] as MeHuman[],
   );
-  const first = humans?.[0];
-  if (!first) return null;
-  const humanId = (humans.find((h) => h.isPrimary) ?? first).humanId;
+  let humanId = (humans.find((h) => h.isPrimary) ?? humans[0])?.humanId ?? null;
+
+  // Mint a caller-bound Hat when none exists. The ACL-grant endpoint resolves
+  // the path username on first contact by upserting a humans row bound to the
+  // calling TenantUser, and returns its stable id. Anchoring the mint to this
+  // unit also closes the read-then-add race the CLI helper documents (the GC
+  // can reclaim a Hat between the `/me/humans` read and the team-add POST).
+  if (!humanId) {
+    const granted = await apiPatch<{ humanId?: string }>(
+      `/api/v1/tenant/units/${encodeURIComponent(unitHex)}/humans/${encodeURIComponent(
+        "e2e-portal-caller-hat",
+      )}/permissions`,
+      { permission: "owner" },
+    ).catch(() => null);
+    humanId = granted?.humanId ?? null;
+  }
+  if (!humanId) return null;
+
   await apiPost(`/api/v1/tenant/units/${encodeURIComponent(unitHex)}/members/humans`, {
     humanId,
     roles: ["owner"],

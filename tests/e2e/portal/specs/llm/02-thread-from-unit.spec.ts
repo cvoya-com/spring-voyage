@@ -64,24 +64,21 @@ test.describe("threads — start from unit detail (#1459 / #1460)", () => {
     await input.fill("Status check from e2e-portal.");
     await page.getByTestId("tab-unit-messages-composer-send").click();
 
-    // After a successful send the composer empties out and the timeline
-    // picks up the new event. Tolerate auth/permission propagation
-    // delays the same way the previous version did.
+    // After a successful send the composer empties out and the timeline picks
+    // up the new event. Tolerate auth/permission propagation delays by also
+    // watching for a real error banner. Match only a NON-EMPTY role="alert":
+    // the page keeps a persistent empty alert live-region for screen-reader
+    // announcements, and treating its mere visibility as a failure made this
+    // spec skip ("Send failed with: " — empty reason) even on a clean send.
+    const errorAlert = page.getByRole("alert").filter({ hasText: /\S/ }).first();
     await Promise.race([
       expect(input).toHaveValue("", { timeout: 15_000 }),
-      page
-        .getByRole("alert")
-        .first()
-        .waitFor({ state: "visible", timeout: 15_000 }),
+      errorAlert.waitFor({ state: "visible", timeout: 15_000 }),
     ]).catch(() => undefined);
 
-    const alert = page.getByRole("alert").first();
-    if (await alert.isVisible().catch(() => false)) {
-      const message = (await alert.textContent()) ?? "";
-      test.skip(
-        true,
-        `Send failed with: ${message.trim().slice(0, 200)}`,
-      );
+    if (await errorAlert.isVisible().catch(() => false)) {
+      const message = (await errorAlert.textContent().catch(() => "")) ?? "";
+      test.skip(true, `Send failed with: ${message.trim().slice(0, 200)}`);
     }
 
     await expect
