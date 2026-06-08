@@ -45,7 +45,7 @@ _pre_cleanup() {
         while IFS= read -r agent_id; do
             [[ -z "${agent_id}" ]] && continue
             e2e::http DELETE "/api/v1/tenant/agents/${agent_id}" >/dev/null 2>&1 || true
-        done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | awk -F'[:"]' '{print $5}')
+        done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | grep -oE '[0-9a-f]{32}')
         e2e::http DELETE "/api/v1/tenant/units/${unit_hex}?force=true" >/dev/null 2>&1 || true
     done < <(printf '%s' "${units_body}" | jq -r '.[] | select(.displayName=="hello-world") | .name' 2>/dev/null)
 }

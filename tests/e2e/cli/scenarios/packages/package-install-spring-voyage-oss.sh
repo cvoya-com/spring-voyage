@@ -34,15 +34,20 @@ expected_agents=(
 
 # Force-delete every unit whose displayName matches `target` (and the agents
 # attached to it) via direct HTTP. The CLI cascade `unit purge` cannot
-# complete today: the API echoes the agent display name in `agentAddress`,
-# but DELETE /memberships/{agentAddress} requires the canonical hex form
-# (500 otherwise). Force-deleting the agents by their canonical id cascades
-# the memberships away; then the bare unit can be deleted. See unit-
-# membership-roundtrip.sh for the same workaround.
+# complete today, so we drive the teardown over the wire: delete each agent
+# member by its canonical hex id (this cascades the membership rows away),
+# then delete the unit itself with `?force=true`. The force flag is required
+# because `package install` leaves the unit Running, and a bare
+# DELETE /units/{id} is gated 409 ("Unit is Running; stop it before deleting").
+# The unit-create-and-start.sh / unit-create-from-template.sh scenarios use
+# the same force=true teardown.
 #
 # Iterating over every match is necessary because a prior failed run can
-# leave duplicate-displayName rows lying around (the package installer
-# does not check for displayName collisions across installs).
+# leave duplicate-displayName rows lying around (the package installer does
+# not check for displayName collisions across installs). Once two rows share
+# the "Spring Voyage OSS" displayName, `unit members list` can no longer
+# resolve the name to a single unit and exits non-zero — which is exactly the
+# failure a broken cleanup produces, so the teardown below must actually land.
 _force_cleanup_unit() {
     local target="$1"
     local units_body unit_hex memberships agent_id matches
@@ -68,8 +73,8 @@ for u in arr:
         while IFS= read -r agent_id; do
             [[ -z "${agent_id}" ]] && continue
             e2e::http DELETE "/api/v1/tenant/agents/${agent_id}" >/dev/null 2>&1 || true
-        done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | awk -F'[:"]' '{print $5}')
-        e2e::http DELETE "/api/v1/tenant/units/${unit_hex}" >/dev/null 2>&1 || true
+        done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | grep -oE '[0-9a-f]{32}')
+        e2e::http DELETE "/api/v1/tenant/units/${unit_hex}?force=true" >/dev/null 2>&1 || true
     done <<< "${matches}"
 }
 
