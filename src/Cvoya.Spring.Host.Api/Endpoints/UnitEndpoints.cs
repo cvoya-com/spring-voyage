@@ -1556,6 +1556,26 @@ public static class UnitEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        // #3132 / #2084 (option (a)): resolve the member against its claimed
+        // scheme's table. An address whose id is not of the claimed scheme is
+        // "not found" — identical to a missing id — rather than being coerced
+        // to the id's actual kind. `scheme:id` is an identity: `unit:<x>`
+        // means "the unit whose id is x", so if no such unit exists (whether x
+        // is absent, deleted, or actually an agent) the answer is a uniform
+        // 404, matching the cross-tenant/missing 404s above. The tenant guard
+        // ran first as the authoritative tenant boundary (DirectoryCache is
+        // not tenant-aware), so this scheme-keyed resolve is only the
+        // existence-and-kind check.
+        var memberEntry = await directoryService.ResolveAsync(memberAddress, cancellationToken);
+        if (memberEntry is null)
+        {
+            return Results.Problem(
+                title: "Member not found",
+                detail: $"No {memberAddress.Scheme} with id "
+                    + $"'{Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(memberAddress.Id)}' in this tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
         // ADR-0039 §6 / B5: when assigning a unit-as-member (sub-unit), the
         // child's effective execution config must remain consistent against
         // the *new* expanded parent set. If the child inherits a field that

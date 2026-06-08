@@ -482,8 +482,19 @@ public class SvDirectorySkillRegistry_LiveStatusTests
             // roles, which the live-status assertions do not inspect.
             var memberRoleDirectory = new InMemoryUnitMemberRoleDirectory();
 
+            // #3131: kind resolution now flows through the shared
+            // IDirectoryService.ResolveKindAsync seam. Wire a real
+            // DirectoryService over the same scope factory so it reads the
+            // identical in-memory SpringDbContext seeded above — ResolveKindAsync
+            // disambiguates agent vs unit (and the unknown-uuid throw) end-to-end.
+            var directoryService = new Cvoya.Spring.Dapr.Routing.DirectoryService(
+                new Cvoya.Spring.Dapr.Routing.DirectoryCache(),
+                scopeFactory,
+                NullLoggerFactory.Instance);
+
             var registry = new SvDirectorySkillRegistry(
                 scopeFactory,
+                directoryService,
                 memberGraph,
                 _membershipStore,
                 memberRoleDirectory,

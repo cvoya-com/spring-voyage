@@ -34,6 +34,30 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
+/// <b>The parsed scheme selects the table (#3134 / #2084).</b> The scheme is
+/// read from a wire-form address the platform itself stamped, so
+/// <c>scheme:id</c> is an authoritative identity, not the claimed-scheme /
+/// trial-and-error anti-pattern the #2084 seam targets. The per-scheme switch
+/// below therefore trusts the scheme to pick the table, and a
+/// <c>scheme:id</c> whose id is absent from that table resolves to the
+/// per-scheme generic fallback — the read-side analogue of the "id is not of
+/// that scheme ⇒ not found" rule the membership write path enforces. A
+/// genuine scheme/id mismatch here would be data corruption, not caller input.
+/// </para>
+///
+/// <para>
+/// This is deliberately NOT routed through
+/// <see cref="Cvoya.Spring.Core.Directory.IDirectoryService.ResolveKindAsync"/>:
+/// that seam reads the process-wide <c>DirectoryCache</c>, which is NOT
+/// tenant-partitioned, so a cache hit could surface another tenant's name on
+/// this tenant-scoped read path; it covers only <c>agent</c>/<c>unit</c> (not
+/// <c>connector</c>/<c>tenant-user</c>/<c>human</c> or the legacy slug forms);
+/// and it cannot express this resolver's non-empty/never-throw contract
+/// (below). The direct <c>AsNoTracking</c> reads here are tenant-safe and
+/// always-DB-fresh.
+/// </para>
+///
+/// <para>
 /// <b>Non-empty contract (#1635 / #2532 / #2533).</b> The resolver
 /// always returns a non-empty string. Resolution failures fall through
 /// tiers:

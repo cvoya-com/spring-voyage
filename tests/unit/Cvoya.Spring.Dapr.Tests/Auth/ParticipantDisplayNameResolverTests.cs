@@ -202,6 +202,25 @@ public class ParticipantDisplayNameResolverTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveAsync_AgentSchemeButIdIsUnit_ReturnsAgentFallback()
+    {
+        // #3134 / #2084: the parsed scheme is authoritative-by-construction
+        // (the platform stamped the wire address). The agent branch reads only
+        // the agent table, so a mis-stamped "agent:<unit-id>" resolves to the
+        // per-scheme generic fallback rather than the unit's name — the
+        // read-side analogue of "id is not of that scheme ⇒ not found". A real
+        // mismatch here would be data corruption, not caller input.
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedUnitAsync(id, "Engineering");
+
+        var status = await _resolver.ResolveStatusAsync(FormatAddress(Address.AgentScheme, id), ct);
+
+        status.DisplayName.ShouldBe("an agent");
+        status.IsFallback.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task ResolveAsync_CachesResultsWithinTheRequest()
     {
         // The resolver caches per-request so repeat calls don't hit the

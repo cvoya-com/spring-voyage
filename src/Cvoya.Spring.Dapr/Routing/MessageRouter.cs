@@ -99,7 +99,28 @@ public class MessageRouter : IMessageRouter
             return Result<Message?, RoutingError>.Failure(resolution.Error!);
         }
 
-        var (actorId, actorScheme) = resolution.Value!;
+        var (actorId, actorScheme, resolvedEntry) = resolution.Value!;
+
+        // #3133 / #2084: the type that drives the type-dependent gates below
+        // (the unit-permission gate and the stopped-recipient kind) is the
+        // recipient's *actual* kind per the directory's DB/cache, not the
+        // scheme claimed on the inbound address. For a path address the
+        // directory entry was resolved out of the scheme-named table, so the
+        // entry's scheme IS the DB-confirmed kind — read it from there. For
+        // the human:// short-circuit and the direct '@' form (neither of
+        // which consult the directory) there is no entry; those keep the
+        // address scheme, which is correct — a human is 1:1 with its address
+        // (deliberately not directory-registered) and is never a unit, and
+        // the '@' form is a non-directory diagnostic shape. This deliberately
+        // does NOT issue a second IDirectoryService.ResolveKindAsync(id) by
+        // id: the seam probes unit-then-agent, so an id-keyed lookup would add
+        // a guaranteed unit-table miss (a per-message DB hit) for every
+        // agent-addressed domain message on this hot path. The entry the
+        // scheme-keyed resolve already returned is the same DB/cache answer at
+        // zero additional cost.
+        var recipientScheme = resolvedEntry is not null
+            ? resolvedEntry.Address.Scheme
+            : actorScheme;
 
         // Permission check: when the destination is a unit and the sender is
         // a permission-bearing principal (human or tenant-user per ADR-0047
@@ -115,7 +136,7 @@ public class MessageRouter : IMessageRouter
         // delivery exceptions (DeliverAsync throws after the persist below);
         // the reorder narrows it to "persist iff the caller is allowed to
         // send."
-        if (string.Equals(actorScheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
+        if (string.Equals(recipientScheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
             && (string.Equals(message.From.Scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(message.From.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase)))
         {
@@ -149,7 +170,7 @@ public class MessageRouter : IMessageRouter
         // open on a missing mirror row / read error — the recipient actor's own
         // receive gate is the authority.
         if (message.Type == MessageType.Domain
-            && await IsRecipientHaltedAsync(actorId, actorScheme, cancellationToken))
+            && await IsRecipientHaltedAsync(actorId, recipientScheme, cancellationToken))
         {
             _logger.LogInformation(
                 "Refusing delivery of message {MessageId} to {Scheme}://{Path}: recipient is stopped (#2981).",
@@ -191,16 +212,18 @@ public class MessageRouter : IMessageRouter
     /// problem.
     /// </para>
     /// </summary>
-    private async Task<Result<(string ActorId, string Scheme), RoutingError>> ResolveActorIdAsync(
+    private async Task<Result<(string ActorId, string Scheme, DirectoryEntry? Entry), RoutingError>> ResolveActorIdAsync(
         Address address, CancellationToken cancellationToken)
     {
         // Direct address: agent://@f47ac10b-... — extract UUID, no directory lookup.
+        // No directory entry is resolved, so the caller falls back to the
+        // address scheme for the type-dependent gates (#3133).
         if (address.Path.StartsWith('@'))
         {
             var actorId = address.Path[1..];
             _logger.LogDebug("Resolved direct address {Scheme}://{Path} to actor ID {ActorId}",
                 address.Scheme, address.Path, actorId);
-            return Result<(string, string), RoutingError>.Success((actorId, address.Scheme));
+            return Result<(string, string, DirectoryEntry?), RoutingError>.Success((actorId, address.Scheme, null));
         }
 
         // Human address: the path IS the actor id — no directory indirection.
@@ -213,26 +236,33 @@ public class MessageRouter : IMessageRouter
             if (string.IsNullOrEmpty(address.Path))
             {
                 _logger.LogWarning("Human address has empty path: {Scheme}://", address.Scheme);
-                return Result<(string, string), RoutingError>.Failure(RoutingError.AddressNotFound(address));
+                return Result<(string, string, DirectoryEntry?), RoutingError>.Failure(RoutingError.AddressNotFound(address));
             }
 
             _logger.LogDebug("Resolved human address {Scheme}://{Path} to actor ID {ActorId}",
                 address.Scheme, address.Path, address.Path);
-            return Result<(string, string), RoutingError>.Success((address.Path, "human"));
+            // No directory entry (humans are deliberately not registered); the
+            // caller keeps the human scheme for the type-dependent gates (#3133).
+            return Result<(string, string, DirectoryEntry?), RoutingError>.Success((address.Path, "human", null));
         }
 
-        // Path address: look up in directory service.
+        // Path address: look up in directory service. The entry is resolved
+        // out of the scheme-named table, so a non-null result both confirms
+        // existence AND confirms the recipient's actual kind (== its scheme)
+        // per the DB/cache — the caller reads that authoritative kind off the
+        // entry for the type-dependent gates instead of trusting the claimed
+        // address scheme (#3133 / #2084).
         var entry = await _directoryService.ResolveAsync(address, cancellationToken);
         if (entry is null)
         {
             _logger.LogWarning("Address not found: {Scheme}://{Path}", address.Scheme, address.Path);
-            return Result<(string, string), RoutingError>.Failure(RoutingError.AddressNotFound(address));
+            return Result<(string, string, DirectoryEntry?), RoutingError>.Failure(RoutingError.AddressNotFound(address));
         }
 
         var actorIdString = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         _logger.LogDebug("Resolved path address {Scheme}://{Path} to actor ID {ActorId}",
             address.Scheme, address.Path, actorIdString);
-        return Result<(string, string), RoutingError>.Success((actorIdString, address.Scheme));
+        return Result<(string, string, DirectoryEntry?), RoutingError>.Success((actorIdString, address.Scheme, entry));
     }
 
     /// <summary>

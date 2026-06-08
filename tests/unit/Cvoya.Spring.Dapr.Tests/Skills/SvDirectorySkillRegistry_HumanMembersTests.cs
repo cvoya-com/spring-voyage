@@ -366,8 +366,18 @@ public class SvDirectorySkillRegistry_HumanMembersTests
             // live_status from the affected entries.
             var actorProxyFactory = Substitute.For<IActorProxyFactory>();
 
+            // #3131: the registry resolves agent/unit kind via the shared
+            // IDirectoryService.ResolveKindAsync seam. Wire a real
+            // DirectoryService over the same scope factory so it reads the
+            // identical in-memory SpringDbContext the fixture seeded.
+            var directoryService = new Cvoya.Spring.Dapr.Routing.DirectoryService(
+                new Cvoya.Spring.Dapr.Routing.DirectoryCache(),
+                scopeFactory,
+                loggerFactory);
+
             var registry = new SvDirectorySkillRegistry(
                 scopeFactory,
+                directoryService,
                 memberGraph,
                 _membershipStore,
                 memberRoleDirectory,

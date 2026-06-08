@@ -50,14 +50,29 @@ public class UnitMembershipTenantGuard(SpringDbContext db) : IUnitMembershipTena
             return false;
         }
 
-        return member.Scheme switch
-        {
-            var s when string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase) =>
-                await AgentVisibleAsync(member.Id, cancellationToken),
-            var s when string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase) =>
-                await UnitVisibleAsync(member.Id, cancellationToken),
-            _ => false,
-        };
+        // #3132 / #2084: this guard's sole concern is tenant visibility, so
+        // it asks the kind-agnostic question — "is this id a tenant-visible
+        // agent OR unit?" — rather than switching on the caller-claimed
+        // member.Scheme. The old switch keyed off the scheme, so a mis-scheme'd
+        // body (e.g. {scheme:"unit", path:<agent-id>}) was checked against the
+        // wrong table and rejected here with a tenant-framed message.
+        // Decoupling kind from this seam lets the endpoint (AddMemberAsync)
+        // resolve `scheme:id` against the claimed scheme's table and return a
+        // precise, uniform "No <scheme> with id X" 404 when the id is absent,
+        // deleted, or of a different kind (#3132 option (a)) — while this seam
+        // still enforces the cross-tenant boundary.
+        //
+        // This deliberately does NOT route through
+        // IDirectoryService.ResolveKindAsync, despite that being the seam
+        // #2084 introduced. ResolveKindAsync reads the process-wide
+        // DirectoryCache, which is NOT tenant-partitioned (see
+        // DirectoryCache and the note in AgentEndpoints.AssignUnitAgentAsync).
+        // This guard is the authoritative tenant-isolation seam precisely
+        // because it reads only the tenant-filtered SpringDbContext in its
+        // own scope — two entities visible to the same scope share a tenant
+        // by construction. Routing it through the shared cache would
+        // reintroduce the cross-tenant leak the guard exists to close.
+        return await MemberVisibleAsync(member.Id, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -86,4 +101,13 @@ public class UnitMembershipTenantGuard(SpringDbContext db) : IUnitMembershipTena
 
     private Task<bool> AgentVisibleAsync(Guid agentId, CancellationToken cancellationToken) =>
         db.AgentDefinitions.AnyAsync(a => a.Id == agentId, cancellationToken);
+
+    // Kind-agnostic membership visibility. An id is globally unique across
+    // the two tables, so probing both answers "is this a tenant-visible
+    // member candidate?" without trusting any claimed scheme. Agents are the
+    // common member kind, so probe that table first to keep the typical add
+    // at a single round-trip.
+    private async Task<bool> MemberVisibleAsync(Guid memberId, CancellationToken cancellationToken) =>
+        await AgentVisibleAsync(memberId, cancellationToken)
+        || await UnitVisibleAsync(memberId, cancellationToken);
 }
