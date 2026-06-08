@@ -277,28 +277,34 @@ if [[ "${BEHIND_COUNT}" -gt 0 ]]; then
   fi
 fi
 
-# ── Changelog must be current ────────────────────────────────────────────────
+# ── Changelog freshness (advisory — does not block) ──────────────────────────
 #
 # CHANGELOG.md's [Unreleased] section is generated from Conventional Commits by
-# eng/release/update-changelog.sh (see docs/developer/releases.md). There is no
-# per-PR changelog convention — this is the single enforcement point. Regenerate
-# against the commit being released and refuse to tag if it changed, so a release
-# can never ship a stale changelog. The operator commits the refreshed file to
-# main (via PR) and reruns. Skipped with --force-retag (e.g. re-tagging an
-# existing version), and skipped with a warning when git-cliff is not installed.
+# eng/release/update-changelog.sh (see docs/developer/releases.md). Regenerate it
+# against the commit being released and WARN — but do not abort — if it changed.
+#
+# This is intentionally advisory, not a gate: the GitHub Release body is built by
+# release.yml from docs/releases/<line>.md + a git-cliff delta over git history
+# (cliff.toml), NOT from CHANGELOG.md, so a stale checked-in CHANGELOG.md never
+# affects what the release ships. Keeping the file fresh is repo hygiene the
+# operator lands on main via a normal PR when convenient. Skipped with
+# --force-retag (e.g. re-tagging an existing version), and skipped when git-cliff
+# is not installed.
 if [[ "$FORCE_RETAG" != "true" ]]; then
   if command -v git-cliff >/dev/null 2>&1; then
     bash "$(dirname "$0")/update-changelog.sh"
     if ! git diff --quiet -- CHANGELOG.md; then
       echo ""
-      echo "::error::CHANGELOG.md was stale; it has just been regenerated in your working tree."
-      echo "         Commit it to main (via a PR), then rerun this script:"
+      echo "⚠  CHANGELOG.md was stale; it has been regenerated in your working tree."
+      echo "   This does NOT block the release — the Release body comes from"
+      echo "   docs/releases/ + a git-cliff delta, not CHANGELOG.md. Commit the"
+      echo "   refresh to main via a PR when convenient:"
       echo ""
-      git --no-pager diff --stat -- CHANGELOG.md | sed 's/^/           /'
+      git --no-pager diff --stat -- CHANGELOG.md | sed 's/^/      /'
       echo ""
-      exit 1
+    else
+      echo "✓  CHANGELOG.md is current."
     fi
-    echo "✓  CHANGELOG.md is current."
   else
     echo "⚠  git-cliff not installed — skipping the CHANGELOG.md freshness check."
     echo "   Install it (brew install git-cliff) so releases verify the changelog. See https://git-cliff.org."
