@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **costs,runtime:** Capture Claude CLI cost end-to-end; daily + unit budget enforcement ([#3074](https://github.com/cvoya-com/spring-voyage/pull/3074))
 - **runtime,magazine:** A2a-process runtime + LangGraph magazine orchestrator ([#3072](https://github.com/cvoya-com/spring-voyage/pull/3072))
 - **runtime,magazine:** Claude manages the LangGraph engine via tools; a2a-process OAuth ([#3077](https://github.com/cvoya-com/spring-voyage/pull/3077))
+- **release:** Generate CHANGELOG.md + per-release Release-body delta (git-cliff) ([#3095](https://github.com/cvoya-com/spring-voyage/pull/3095))
+- **costs:** Native/SDK-runtime cost, clone roll-up, initiative classification, dead-code cleanup ([#3075](https://github.com/cvoya-com/spring-voyage/pull/3075)) ([#3110](https://github.com/cvoya-com/spring-voyage/pull/3110))
+- **orchestrator:** Opt-in graph-derivable command registry for the localhost MCP tool surface ([#3078](https://github.com/cvoya-com/spring-voyage/pull/3078)) ([#3114](https://github.com/cvoya-com/spring-voyage/pull/3114))
+- **config:** Runtime/DB config as the single source of truth — reconstruct export, decide single-home model/hosting ([#3090](https://github.com/cvoya-com/spring-voyage/pull/3090)) ([#3113](https://github.com/cvoya-com/spring-voyage/pull/3113))
+- **deploy:** TLS_MODE — HTTPS without internet-facing (Caddy internal CA / custom cert / ACME) ([#3118](https://github.com/cvoya-com/spring-voyage/pull/3118))
+- **costs:** Attribute SDK turn cost to owning unit; drop orphaned ICostTracker ([#3121](https://github.com/cvoya-com/spring-voyage/pull/3121))
+- **codex,sidecar,activity:** Wire Codex MCP via config.toml, parse Codex JSONL, ingest stream events as activities ([#3140](https://github.com/cvoya-com/spring-voyage/pull/3140))
 
 ### Bug fixes
 
@@ -50,12 +57,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **magazine-langgraph:** Make orchestrator image dispatch-ready ([#3084](https://github.com/cvoya-com/spring-voyage/pull/3084))
 - **install:** Point the spring CLI at the deployed API endpoint ([#3093](https://github.com/cvoya-com/spring-voyage/pull/3093))
 - **cli,install:** Reconcile the spring CLI endpoint on re-install ([#3094](https://github.com/cvoya-com/spring-voyage/pull/3094))
+- **magazine,directory,messaging:** Make magazine-langgraph editions run and fail loudly ([#3088](https://github.com/cvoya-com/spring-voyage/pull/3088))
+- **cloud-env:** Make Dapr opt-in so default setup succeeds under Trusted ([#3098](https://github.com/cvoya-com/spring-voyage/pull/3098))
+- **api:** Return 404 not 500 for PostThreadMessage on unknown thread id ([#3087](https://github.com/cvoya-com/spring-voyage/pull/3087)) ([#3103](https://github.com/cvoya-com/spring-voyage/pull/3103))
+- **runtime:** Harden native-A2A launch — specific failures over silent readiness timeout ([#3085](https://github.com/cvoya-com/spring-voyage/pull/3085)) ([#3109](https://github.com/cvoya-com/spring-voyage/pull/3109))
+- **runtime:** Default BYOI container CWD to image WORKDIR; CLI launchers set workspace-CWD explicitly ([#3106](https://github.com/cvoya-com/spring-voyage/pull/3106)) ([#3115](https://github.com/cvoya-com/spring-voyage/pull/3115))
+- Unblock local single-host agent turns — resolve components path + fail fast on missing bind-mount source ([#3101](https://github.com/cvoya-com/spring-voyage/pull/3101)) ([#3116](https://github.com/cvoya-com/spring-voyage/pull/3116))
+- **install,deploy:** Harden install/uninstall + smoke-test rootless port floor ([#3120](https://github.com/cvoya-com/spring-voyage/pull/3120))
+- **runtime,sidecar:** Make Codex dispatchable, fix false catalogue claims, parse stream-json (#2118/#2119/#3018/#2226) ([#3126](https://github.com/cvoya-com/spring-voyage/pull/3126))
 
 ### Refactor
 
 - **skills:** Unify tool execution-context on the caller-aware path; remove sv.expertise.* ([#2989](https://github.com/cvoya-com/spring-voyage/pull/2989)) ([#3009](https://github.com/cvoya-com/spring-voyage/pull/3009))
 - **memory:** Rename kind→scope axis; derive from thread_id ([#2997](https://github.com/cvoya-com/spring-voyage/pull/2997)) ([#3015](https://github.com/cvoya-com/spring-voyage/pull/3015))
 - **runtime:** Remove agent-facing "thread" semantics (#3041 Parts B & C + config rename) ([#3044](https://github.com/cvoya-com/spring-voyage/pull/3044))
+- **directory:** Consolidate unit member + role resolution into one DB-backed seam ([#3089](https://github.com/cvoya-com/spring-voyage/pull/3089)) ([#3105](https://github.com/cvoya-com/spring-voyage/pull/3105))
+- **directory:** Consolidate sv.directory.* to a minimal, non-overlapping surface ([#3069](https://github.com/cvoya-com/spring-voyage/pull/3069)) ([#3127](https://github.com/cvoya-com/spring-voyage/pull/3127))
+- **directory:** Resolve agent/unit type from the DB/cache, not the address scheme ([#2084](https://github.com/cvoya-com/spring-voyage/pull/2084)) ([#3136](https://github.com/cvoya-com/spring-voyage/pull/3136))
+- **directory,routing:** Resolve kind from the DB/cache seam, not the address scheme (#3131, #3133, #3134); membership mismatch is not-found ([#3132](https://github.com/cvoya-com/spring-voyage/pull/3132)) ([#3139](https://github.com/cvoya-com/spring-voyage/pull/3139))
 
 ### Documentation
 
@@ -64,6 +83,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Simplify root README and sync the canonical container-image list ([#3070](https://github.com/cvoya-com/spring-voyage/pull/3070))
 - Update development setup prerequisites for clarity and specificity
 - Align README host prerequisites with setup.md
+
+### Other
+
+- Single home for unit/agent model & hosting — remove the definition-jsonb dual-home + dispatch overlay (ADR-0067) ([#3117](https://github.com/cvoya-com/spring-voyage/pull/3117))
 
 <!-- BEGIN FROZEN HISTORY -->
 
