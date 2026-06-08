@@ -40,18 +40,6 @@ Two prompts: `DEPLOY_HOSTNAME` (default `localhost`) and an optional GitHub App 
 
 For flags, TLS, troubleshooting, and updates see the [operator deployment guide](docs/guide/operator/deployment.md).
 
-### CLI-only install (no platform)
-
-If you already have the .NET 10 runtime and just want the `spring` CLI to connect to an existing Spring Voyage instance, install it from NuGet:
-
-```bash
-dotnet tool install -g Cvoya.Spring.Cli
-export SPRING_API_URL=https://your-spring-voyage-host
-spring --help
-```
-
-The platform installer already bundles a self-contained `spring` binary; use this only when you manage CLI tools via the .NET toolchain or don't run the platform locally.
-
 ## Getting Started
 
 After installing, open the portal at **http://localhost** — the new-unit wizard walks you through everything, including LLM credentials, GitHub or Slack integration, and other configuration. No CLI required to get going.
