@@ -67,6 +67,6 @@
          CodedInputStream parses the OTLP envelopes our ingest controller
          receives when a runtime emits `application/x-protobuf`; the
          JSON-side wire mapper handles `application/json`. -->
-    <PackageVersion Include="Google.Protobuf" Version="3.35.0" />
+    <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
   </ItemGroup>
 </Project>
