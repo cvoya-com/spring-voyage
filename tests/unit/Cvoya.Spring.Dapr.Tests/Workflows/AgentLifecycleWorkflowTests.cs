@@ -76,7 +76,7 @@ public class AgentLifecycleWorkflowTests
         await _workflow.RunAsync(_context, input);
 
         await _context.DidNotReceive().CallActivityAsync<bool>(
-            nameof(RegisterAgentActivity), Arg.Any<object>());
+            nameof(RegisterAgentActivity), Arg.Any<AgentLifecycleInput>());
     }
 
     [Fact]
