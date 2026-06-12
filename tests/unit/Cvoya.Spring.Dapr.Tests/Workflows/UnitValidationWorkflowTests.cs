@@ -38,13 +38,7 @@ public class ArtefactValidationWorkflowTests
         // assert on the event sequence emitted by the workflow.
         _context.CallActivityAsync<bool>(
                 nameof(EmitValidationProgressActivity),
-                Arg.Do<object?>(o =>
-                {
-                    if (o is EmitValidationProgressActivityInput e)
-                    {
-                        _emitted.Add(e);
-                    }
-                }))
+                Arg.Do<EmitValidationProgressActivityInput>(o => _emitted.Add(o)))
             .Returns(true);
     }
 
@@ -61,7 +55,7 @@ public class ArtefactValidationWorkflowTests
     private void SetupPullImage(bool success, ArtefactValidationError? failure = null)
     {
         _context.CallActivityAsync<PullImageActivityOutput>(
-                nameof(PullImageActivity), Arg.Any<object?>())
+                nameof(PullImageActivity), Arg.Any<PullImageActivityInput>())
             .Returns(new PullImageActivityOutput(success, failure));
     }
 
@@ -69,12 +63,12 @@ public class ArtefactValidationWorkflowTests
     {
         _context.CallActivityAsync<RunContainerProbeActivityOutput>(
                 nameof(RunContainerProbeActivity),
-                Arg.Is<object?>(o => MatchesStep(o, step)))
+                Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, step)))
             .Returns(output);
     }
 
-    private static bool MatchesStep(object? o, ArtefactValidationStep expected) =>
-        o is RunContainerProbeActivityInput input && input.Step == expected;
+    private static bool MatchesStep(RunContainerProbeActivityInput o, ArtefactValidationStep expected) =>
+        o.Step == expected;
 
     private static RunContainerProbeActivityOutput Succeeded(
         IReadOnlyDictionary<string, string>? extras = null) =>
@@ -129,7 +123,7 @@ public class ArtefactValidationWorkflowTests
         result.Failure.Step.ShouldBe(ArtefactValidationStep.PullingImage);
 
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
-            nameof(RunContainerProbeActivity), Arg.Any<object?>());
+            nameof(RunContainerProbeActivity), Arg.Any<RunContainerProbeActivityInput>());
     }
 
     [Fact]
@@ -149,10 +143,10 @@ public class ArtefactValidationWorkflowTests
         // No ValidatingCredential / ResolvingModel should have fired.
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<object?>(o => MatchesStep(o, ArtefactValidationStep.ValidatingCredential)));
+            Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ValidatingCredential)));
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<object?>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
+            Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
     }
 
     [Fact]
@@ -172,7 +166,7 @@ public class ArtefactValidationWorkflowTests
 
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<object?>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
+            Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
     }
 
     [Fact]

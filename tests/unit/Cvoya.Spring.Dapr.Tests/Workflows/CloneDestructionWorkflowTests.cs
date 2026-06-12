@@ -44,7 +44,7 @@ public class CloneDestructionWorkflowTests
         result.Success.ShouldBeTrue();
         result.CloneId.ShouldBe("clone-1");
         await _context.DidNotReceive().CallActivityAsync<bool>(
-            nameof(FlowMemoryToParentActivity), Arg.Any<object>());
+            nameof(FlowMemoryToParentActivity), Arg.Any<CloningInput>());
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class CloneDestructionWorkflowTests
         result.Success.ShouldBeFalse();
         result.Error!.ShouldContain("memory");
         await _context.DidNotReceive().CallActivityAsync<bool>(
-            nameof(DestroyCloneActivity), Arg.Any<object>());
+            nameof(DestroyCloneActivity), Arg.Any<CloningInput>());
     }
 
     [Fact]

@@ -87,9 +87,9 @@ public class CloningLifecycleWorkflowTests
         await _workflow.RunAsync(_context, input);
 
         await _context.DidNotReceive().CallActivityAsync<bool>(
-            nameof(CreateCloneActorActivity), Arg.Any<object>());
+            nameof(CreateCloneActorActivity), Arg.Any<CloningInput>());
         await _context.DidNotReceive().CallActivityAsync<bool>(
-            nameof(RegisterCloneActivity), Arg.Any<object>());
+            nameof(RegisterCloneActivity), Arg.Any<CloningInput>());
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class CloningLifecycleWorkflowTests
         await _workflow.RunAsync(_context, input);
 
         await _context.DidNotReceive().CallActivityAsync<bool>(
-            nameof(RegisterCloneActivity), Arg.Any<object>());
+            nameof(RegisterCloneActivity), Arg.Any<CloningInput>());
     }
 
     [Fact]
