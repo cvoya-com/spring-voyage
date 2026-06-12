@@ -180,14 +180,15 @@ public class WorkerCompositionTests
     {
         using var provider = BuildWorkerServiceProvider();
 
-        // IWorkflowsFactory is internal to Dapr.Workflow; resolve it by
-        // walking the service descriptors for the exact interface type.
-        var daprWorkflowAssembly = typeof(global::Dapr.Workflow.DaprWorkflowClient).Assembly;
-        var factoryInterfaceType = daprWorkflowAssembly
-            .GetType("Dapr.Workflow.Worker.IWorkflowsFactory", throwOnError: false);
+        // IWorkflowsFactory is internal to Dapr.Workflow. In SDK 1.18+ it moved
+        // to Dapr.Workflow.Abstractions.dll (same namespace), so search all
+        // loaded assemblies rather than just Dapr.Workflow.dll.
+        var factoryInterfaceType = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(a => a.GetType("Dapr.Workflow.Worker.IWorkflowsFactory", throwOnError: false))
+            .FirstOrDefault(t => t != null);
 
         factoryInterfaceType.ShouldNotBeNull(
-            "IWorkflowsFactory must exist in the Dapr.Workflow assembly for this test to be meaningful");
+            "IWorkflowsFactory must exist in a Dapr.Workflow assembly for this test to be meaningful");
 
         var factory = provider.GetService(factoryInterfaceType!);
         factory.ShouldNotBeNull(
