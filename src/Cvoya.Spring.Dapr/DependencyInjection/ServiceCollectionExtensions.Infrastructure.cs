@@ -24,6 +24,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -62,12 +63,24 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // During build-time OpenAPI generation (GetDocument.Insider) the Dapr
         // Workflow hosted service starts a gRPC bidirectional stream with the
         // sidecar. There is no sidecar at build time, so it spams "Connection
-        // refused" errors. Strip the worker (keeping DaprWorkflowClient and
-        // the rest of the workflow DI graph) via the shared helper that also
-        // backs the integration-test workaround for #568. See #370 and #568.
+        // refused" errors. The upstream disposal bug (GrpcProtocolHandler
+        // ObjectDisposedException) is fixed in Dapr.Workflow 1.18.1, but
+        // stripping the worker is still needed to suppress "Connection refused"
+        // noise during build-time OpenAPI generation — no sidecar is present.
+        // Strip only IHostedService registrations whose ImplementationType
+        // lives under Dapr.Workflow, leaving DaprWorkflowClient and the rest
+        // of the workflow DI graph intact. See #370.
         if (isDocGen)
         {
-            services.RemoveDaprWorkflowWorker();
+            var workerDescriptors = services
+                .Where(d => d.ServiceType == typeof(IHostedService)
+                    && d.ImplementationType?.FullName?.StartsWith(
+                        "Dapr.Workflow.", StringComparison.Ordinal) == true)
+                .ToList();
+            foreach (var descriptor in workerDescriptors)
+            {
+                services.Remove(descriptor);
+            }
         }
 
         // EF Core / PostgreSQL.

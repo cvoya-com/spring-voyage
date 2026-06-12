@@ -13,7 +13,6 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
-using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
@@ -358,12 +357,6 @@ public class UnitHumansEndpointsUnauthenticatedTests : IDisposable
                     services.AddSingleton(new DirectoryCache());
                     services.AddSingleton(Substitute.For<DaprClient>());
                     services.AddDaprWorkflow(options => { });
-
-                    // Strip the Dapr WorkflowWorker IHostedService — same #568
-                    // workaround as CustomWebApplicationFactory. No sidecar in
-                    // tests; the worker would surface ObjectDisposedException on
-                    // factory disposal.
-                    services.RemoveDaprWorkflowWorker();
 
                     services.AddSingleton(sp =>
                     {

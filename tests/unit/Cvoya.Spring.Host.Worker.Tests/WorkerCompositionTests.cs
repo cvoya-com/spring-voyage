@@ -11,7 +11,6 @@ using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
-using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Tenancy;
 using Cvoya.Spring.Dapr.Units;
 using Cvoya.Spring.Dapr.Workflows;
@@ -53,10 +52,9 @@ using Xunit;
 /// <para>
 /// The test runs against an in-memory EF Core provider (the Worker's
 /// <c>AddCvoyaSpringDapr</c> fail-fasts when no provider is configured —
-/// see #261) and strips the Dapr Workflow worker (no sidecar — see #568),
-/// so no external runtime is required. Every other registration — skills,
-/// connectors, actors, hosted services, options binding — goes through the
-/// same path as the real Worker.
+/// see #261), so no external runtime is required. Every other registration —
+/// skills, connectors, actors, hosted services, options binding — goes
+/// through the same path as the real Worker.
 /// </para>
 /// </remarks>
 public class WorkerCompositionTests
@@ -408,13 +406,6 @@ public class WorkerCompositionTests
         var dbName = $"WorkerCompositionTest_{Guid.NewGuid():N}";
         builder.Services.AddDbContext<SpringDbContext>(options =>
             options.UseInMemoryDatabase(dbName));
-
-        // No Dapr sidecar in tests — strip the workflow worker background
-        // service via the shared helper that also backs #568's integration-
-        // test workaround. The DaprWorkflowClient and the rest of the
-        // workflow DI graph stay registered so any singleton that depends on
-        // them still resolves during ValidateOnBuild.
-        builder.Services.RemoveDaprWorkflowWorker();
 
         // Strip DatabaseMigrator (the Worker-owned hosted service that
         // applies EF migrations). The in-memory provider has no migration

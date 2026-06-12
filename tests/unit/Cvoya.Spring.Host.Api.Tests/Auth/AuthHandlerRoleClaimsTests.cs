@@ -11,7 +11,6 @@ using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
-using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Auth;
 
@@ -202,10 +201,6 @@ public class AuthHandlerRoleClaimsTests : IDisposable
                     "Host=test;Database=test;Username=test;Password=test");
                 builder.ConfigureServices(services =>
                 {
-                    // #568: strip the Dapr workflow worker so factory
-                    // disposal doesn't trip the ObjectDisposedException race.
-                    services.RemoveDaprWorkflowWorker();
-
                     var dbDescriptors = services
                         .Where(d => d.ServiceType == typeof(DbContextOptions<SpringDbContext>)
                                  || d.ServiceType == typeof(DbContextOptions)
@@ -248,13 +243,6 @@ public class AuthHandlerRoleClaimsTests : IDisposable
                     services.AddSingleton(new DirectoryCache());
                     services.AddSingleton(Substitute.For<DaprClient>());
                     services.AddDaprWorkflow(options => { });
-
-                    // #1355: AddDaprWorkflow re-registers the WorkflowWorker
-                    // IHostedService after the earlier RemoveDaprWorkflowWorker()
-                    // call stripped it. Strip it again so host teardown does not
-                    // trip the upstream GrpcProtocolHandler ObjectDisposedException
-                    // race (Dapr.Workflow 1.17.8 — see DaprWorkflowWorkerWorkaround).
-                    services.RemoveDaprWorkflowWorker();
 
                     services.AddSingleton(sp =>
                     {

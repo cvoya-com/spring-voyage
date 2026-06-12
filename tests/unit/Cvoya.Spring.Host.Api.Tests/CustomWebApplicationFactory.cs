@@ -20,7 +20,6 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
-using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Observability;
 using Cvoya.Spring.Dapr.Routing;
@@ -684,15 +683,6 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             // Dapr runtime dependencies.
             services.AddSingleton(Substitute.For<DaprClient>());
             services.AddDaprWorkflow(options => { });
-
-            // Strip the Dapr WorkflowWorker IHostedService via the shared
-            // helper. The tests have no sidecar and never exercise workflow
-            // execution, so the worker's background gRPC stream only
-            // contributes flake on host teardown (see #568 — full root-cause
-            // and links live on DaprWorkflowWorkerWorkaround). The
-            // DaprWorkflowClient and supporting DI registrations stay so
-            // endpoint code that depends on them still resolves.
-            services.RemoveDaprWorkflowWorker();
 
             services.AddSingleton(sp =>
             {
