@@ -7,7 +7,6 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
-using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors.Client;
@@ -75,9 +74,6 @@ internal static class UnauthenticatedTestHostHelpers
         services.AddSingleton(new DirectoryCache());
         services.AddSingleton(Substitute.For<DaprClient>());
         services.AddDaprWorkflow(options => { });
-        // No sidecar in these tests; strip the Dapr workflow worker the
-        // same way CustomWebApplicationFactory does (see #568).
-        services.RemoveDaprWorkflowWorker();
 
         services.AddSingleton(sp =>
         {

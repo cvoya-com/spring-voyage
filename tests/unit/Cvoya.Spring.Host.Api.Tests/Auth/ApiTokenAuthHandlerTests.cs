@@ -11,7 +11,6 @@ using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
-using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Auth;
 
@@ -108,12 +107,6 @@ public class ApiTokenAuthHandlerTests : IDisposable
 
                     services.AddSingleton(Substitute.For<DaprClient>());
                     services.AddDaprWorkflow(options => { });
-
-                    // Strip the Dapr WorkflowWorker IHostedService to avoid the
-                    // ObjectDisposedException race on host teardown (#568). The
-                    // tests don't drive workflow execution, so the worker's
-                    // background gRPC stream is dead weight.
-                    services.RemoveDaprWorkflowWorker();
 
                     services.AddSingleton(sp =>
                     {
