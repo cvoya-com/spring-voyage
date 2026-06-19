@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # .NET SDK — needed to `dotnet run` the CLI via the default SPRING_CLI.
       # Override SPRING_CLI to a prebuilt binary path to skip this.
