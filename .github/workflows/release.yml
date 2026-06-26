@@ -352,7 +352,7 @@ jobs:
 
     steps:
       - name: Checkout at tagged commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.tag }}
           # Full history + tags so git-cliff can compute the per-release
@@ -516,7 +516,7 @@ jobs:
     needs: [resolve, ci-gate]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -551,7 +551,7 @@ jobs:
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
       MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -651,7 +651,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.skip != 'true'
 
       - uses: actions/setup-dotnet@v5
@@ -726,7 +726,7 @@ jobs:
           - os: macos-14
             target: darwin-arm64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -862,7 +862,7 @@ jobs:
       MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -951,7 +951,7 @@ jobs:
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
       MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -1031,7 +1031,7 @@ jobs:
       TARGET_BASE: ghcr.io/cvoya-com/spring-voyage
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -1118,7 +1118,7 @@ jobs:
       PLATFORM_IMAGE_REPO: ghcr.io/cvoya-com/spring-voyage
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Stage bundle contents
         shell: bash
@@ -1302,7 +1302,7 @@ jobs:
       DISPATCHER_EXE: ${{ matrix.dispatcher_executable }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -1493,7 +1493,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Stage install.sh + install-<v>.sh
         shell: bash
@@ -1812,7 +1812,7 @@ jobs:
 
     steps:
       - name: Checkout (formula template only)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           sparse-checkout: |
             eng/homebrew
