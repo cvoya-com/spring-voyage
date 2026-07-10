@@ -37,7 +37,7 @@
          floor allows 10.0.4, which otherwise gets chosen and produces
          an assembly-version mismatch at runtime for dotnet-getdocument. -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
-    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.9" />
 
     <!-- A2A (Agent-to-Agent protocol). The Spring Voyage Dapr agent advertises
