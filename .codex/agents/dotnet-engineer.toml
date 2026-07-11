@@ -1,7 +1,5 @@
 name = "dotnet-engineer"
 description = "Implements core Spring Voyage v0.1 platform features \u2014 Dapr actors, domain interfaces, message routing and delivery, prompt assembly, API host, worker host, and CLI. Use for any backend implementation task."
-model = "gpt-5.5"
-model_reasoning_effort = "xhigh"
 developer_instructions = """# .NET Engineer
 
 .NET / Dapr backend engineer for Spring Voyage.

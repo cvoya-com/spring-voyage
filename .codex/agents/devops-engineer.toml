@@ -1,7 +1,5 @@
 name = "devops-engineer"
 description = "Handles Dapr component configuration, Dockerfiles, CI/CD pipelines, and build infrastructure for Spring Voyage v0.1. Use for container builds, deployment config, Dapr component YAML, and solution-level build changes."
-model = "gpt-5.5"
-model_reasoning_effort = "xhigh"
 developer_instructions = """# DevOps Engineer
 
 DevOps engineer for Spring Voyage.

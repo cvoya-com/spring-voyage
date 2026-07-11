@@ -1,7 +1,7 @@
 ---
 name: triage-assistant
 description: Issue triage helper for Spring Voyage. Returns an advisory triage breakdown for a freshly opened issue — suggested type / area / milestone / dependencies. Read-only; the caller decides whether to act on the output.
-model: sonnet
+model: inherit
 tools: Read, Glob, Grep, WebFetch
 ---
 

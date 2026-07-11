@@ -1,7 +1,7 @@
 ---
 name: connector-engineer
 description: Implements Spring Voyage v0.1 connectors — inbound webhook translation and outbound skill exposure. Use for GitHub, Slack, or new connector implementations, webhook signature verification, and Octokit.net integration.
-model: opus
+model: inherit
 tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 ---
 

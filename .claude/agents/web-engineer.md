@@ -1,7 +1,7 @@
 ---
 name: web-engineer
 description: Web / portal engineer for Spring Voyage. Owns the Next.js portal at src/Cvoya.Spring.Web/ (including the new unit/agent-interaction UX) plus connector-side web submodules. Use for portal feature work, the new agent-interaction UX, and any TypeScript/React changes under src/Cvoya.Spring.Web/ or connector web/ subprojects.
-model: opus
+model: inherit
 tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: design-engineer
 description: Owns the Spring Voyage portal UI/UX — design-system tokens, component patterns, layout, typography, accessibility, and DESIGN.md. Use for portal visual changes, dark-mode behavior, accessibility audits, and interaction flow reviews.
-model: opus
+model: inherit
 tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 ---
 

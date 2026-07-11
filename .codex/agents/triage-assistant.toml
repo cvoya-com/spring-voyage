@@ -1,7 +1,5 @@
 name = "triage-assistant"
 description = "Issue triage helper for Spring Voyage. Returns an advisory triage breakdown for a freshly opened issue — suggested type / area / milestone / dependencies. Read-only; the caller decides whether to act on the output."
-model = "gpt-5.5"
-model_reasoning_effort = "medium"
 developer_instructions = """# Triage Assistant
 
 Issue triage helper for Spring Voyage. Returns an **advisory** triage

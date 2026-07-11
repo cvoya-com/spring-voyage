@@ -1,7 +1,5 @@
 name = "cli-engineer"
 description = "CLI engineer for Spring Voyage. Owns src/Cvoya.Spring.Cli/ \u2014 the `spring` CLI built on top of the public Web API. Use for CLI command authoring, Kiota client integration, validation/exit-code handling, and CLI-side end-to-end tests."
-model = "gpt-5.5"
-model_reasoning_effort = "xhigh"
 developer_instructions = """# CLI Engineer
 
 CLI engineer for Spring Voyage. The CLI is the primary user experience for v0.1.
