@@ -35,6 +35,6 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Submit NuGet dependency snapshot
-        uses: advanced-security/component-detection-dependency-submission-action@v0.1.1
+        uses: advanced-security/component-detection-dependency-submission-action@v0.1.4
         with:
           detectorsCategories: NuGet
