@@ -1352,7 +1352,7 @@ public static class PackageCommand
             var line = rawLine.TrimEnd('\r');
 
             // Skip blank lines and YAML comments.
-            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith("#", StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#'))
             {
                 continue;
             }

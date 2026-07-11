@@ -372,10 +372,10 @@ public class DefaultSkillBundleValidatorTests
                 return existing;
             }
 
-            var bytes = System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(slug));
+            var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(slug));
             Span<byte> guidBytes = stackalloc byte[16];
             bytes.AsSpan(0, 16).CopyTo(guidBytes);
-            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x50);
+            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x80);
             guidBytes[8] = (byte)((guidBytes[8] & 0x3F) | 0x80);
             (guidBytes[0], guidBytes[3]) = (guidBytes[3], guidBytes[0]);
             (guidBytes[1], guidBytes[2]) = (guidBytes[2], guidBytes[1]);

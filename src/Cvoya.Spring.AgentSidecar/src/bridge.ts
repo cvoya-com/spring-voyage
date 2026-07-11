@@ -57,7 +57,10 @@ export async function runAgentBridge(opts: BridgeRunOptions): Promise<BridgeRunR
   // Spawn with a clean env — only the launcher-provided values flow in.
   // shell:false guarantees no shell expansion. Each arg is forwarded as
   // a distinct token (matches the IReadOnlyList<string> contract on the
-  // dispatcher side from PR 1).
+  // dispatcher side from PR 1). The executable vector is a trusted
+  // deployment-time contract supplied by the platform launcher, never by the
+  // message/send caller; accepting arbitrary BYOI executables is the bridge's
+  // purpose.
   const child: ChildProcess = spawn(command, args, {
     cwd: opts.cwd ?? process.cwd(),
     env: opts.env,

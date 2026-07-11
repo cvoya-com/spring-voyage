@@ -25,6 +25,9 @@ Desktop.ini
 *.log
 coverage/
 
+## Local CodeQL databases and SARIF output (`eng/ci/codeql.sh`).
+artifacts/
+
 ## Dapr local secrets (not committed)
 eng/dapr/secrets.json
 

@@ -9,9 +9,9 @@ on:
     # scanning results' rule that waits for a CodeQL SARIF upload for each PR
     # head commit. If paths-ignore prevents this workflow from running on a
     # docs-only PR, no SARIF ever gets uploaded and the PR blocks forever
-    # (see #191 - NOTICE.md-only PR that couldn't merge). With build-mode none
-    # running CodeQL on a doc-only PR is cheap (~2 min on the db reuse path)
-    # so paying that cost beats the merge deadlock.
+    # (see #191 - NOTICE.md-only PR that couldn't merge). All configured
+    # languages use build-mode none, so running on a docs-only PR is cheap and
+    # paying that cost beats the merge deadlock.
     #
     # No merge_group trigger on purpose: CodeQL isn't a required merge-queue
     # check, and the queue deletes its temporary gh-readonly-queue ref the
@@ -32,20 +32,31 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze (C#)
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - actions
+          - csharp
+          - javascript-typescript
+          - python
+
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         with:
-          languages: csharp
+          languages: ${{ matrix.language }}
           build-mode: none
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         with:
-          category: "/language:csharp"
+          category: "/language:${{ matrix.language }}"

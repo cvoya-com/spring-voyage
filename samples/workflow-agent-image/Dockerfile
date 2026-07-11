@@ -11,4 +11,5 @@ RUN dotnet publish samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgen
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+USER $APP_UID
 ENTRYPOINT ["dotnet", "Cvoya.Spring.Sample.WorkflowAgent.dll"]

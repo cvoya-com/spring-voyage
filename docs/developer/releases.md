@@ -135,8 +135,21 @@ The repository has two continuous-integration workflows under [`.github/workflow
   - `web-lint` / `web-build` — ESLint and `next build` for the web portal.
   - `python-lint` / `python-test` — ruff and pytest for `agents/spring-voyage-agent/`.
   - `openapi-drift` — rebuilds `openapi.json` and the Kiota CLI client and fails if the working tree is dirty.
+  - `workflow-yaml` — parses workflow YAML and runs pinned `zizmor` security
+    analysis; every finding fails the job and can be reproduced with
+    `eng/ci/zizmor.sh`.
   - `required-checks` — aggregation gate for branch protection.
-- **[`codeql.yml`](../../.github/workflows/codeql.yml)** — CodeQL C# analysis on pushes, pull requests, merge queue, and weekly.
+- **[`codeql.yml`](../../.github/workflows/codeql.yml)** — CodeQL analysis for
+  GitHub Actions, C#, JavaScript/TypeScript, and Python on pushes, pull requests,
+  and a weekly schedule. `eng/ci/codeql.sh` reproduces the build-mode-none
+  language matrix and default query suites locally.
+- **[`dependency-review.yml`](../../.github/workflows/dependency-review.yml)** —
+  rejects newly introduced high/critical vulnerable dependencies and
+  GPL-2.0/GPL-3.0 licenses on pull requests.
+- **[`trivy.yml`](../../.github/workflows/trivy.yml)** — scans dependencies,
+  secrets, and repository configuration for high/critical findings on pull
+  requests, main, and a weekly schedule. Run the same fail-closed scan locally
+  with `eng/ci/trivy.sh`.
 
 ### Release workflow
 

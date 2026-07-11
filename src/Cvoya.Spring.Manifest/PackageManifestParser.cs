@@ -1175,12 +1175,12 @@ public static class PackageManifestParser
             // names are unique within a package across kinds in practice
             // — we resolve by name across all kinds.
             var thisKey = NodeKey(a.Kind, a.Name);
-            foreach (var k in (ArtefactKind[])Enum.GetValues(typeof(ArtefactKind)))
+            foreach (var k in Enum.GetValues<ArtefactKind>())
             {
                 var parentKey = NodeKey(k, a.ContainingArtefactName);
-                if (graph.ContainsKey(parentKey))
+                if (graph.TryGetValue(parentKey, out var parentEdges))
                 {
-                    graph[parentKey].Add(thisKey);
+                    parentEdges.Add(thisKey);
                     break;
                 }
             }

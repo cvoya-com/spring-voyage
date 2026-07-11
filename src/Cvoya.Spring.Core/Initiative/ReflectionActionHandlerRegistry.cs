@@ -17,7 +17,7 @@ namespace Cvoya.Spring.Core.Initiative;
 /// </remarks>
 public class ReflectionActionHandlerRegistry : IReflectionActionHandlerRegistry
 {
-    private readonly IReadOnlyDictionary<string, IReflectionActionHandler> _handlers;
+    private readonly Dictionary<string, IReflectionActionHandler> _handlers;
 
     /// <summary>
     /// Initializes a new <see cref="ReflectionActionHandlerRegistry"/> from

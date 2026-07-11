@@ -60,9 +60,11 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -80,7 +82,7 @@ jobs:
 
       - name: Cache Dapr runtime (~/.dapr)
         id: dapr-cache
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.dapr
           key: dapr-slim-${{ runner.os }}-1.14.1-v1
@@ -244,7 +246,7 @@ jobs:
 
       - name: Upload Ollama logs (on failure)
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ollama-logs
           path: /tmp/ollama.log

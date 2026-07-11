@@ -7,6 +7,7 @@ FROM docker.io/library/python:3.13.13-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
+ && useradd --uid 10001 --create-home --shell /usr/sbin/nologin sidecar \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -16,8 +17,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY sidecar.py .
 
+RUN chown -R sidecar:sidecar /app
+
 ENV AGENT_PORT=8999
 
 EXPOSE ${AGENT_PORT}
+
+USER sidecar
 
 ENTRYPOINT ["python3", "sidecar.py"]

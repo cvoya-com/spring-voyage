@@ -414,3 +414,8 @@ dotnet_naming_style.s_camelcase.required_prefix = s_
 dotnet_naming_style.s_camelcase.required_suffix =
 dotnet_naming_style.s_camelcase.word_separator =
 dotnet_naming_style.s_camelcase.capitalization = camel_case
+
+# Retain the existing quality baseline while making the complete .NET security
+# analyzer set fail closed.
+[*.cs]
+dotnet_analyzer_diagnostic.category-Security.severity = error

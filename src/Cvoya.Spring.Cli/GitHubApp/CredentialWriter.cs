@@ -96,7 +96,7 @@ public static class CredentialWriter
             {
                 var line = existingLines[i];
                 var trimmed = line.TrimStart();
-                if (trimmed.StartsWith("#", StringComparison.Ordinal))
+                if (trimmed.StartsWith('#'))
                 {
                     continue;
                 }
