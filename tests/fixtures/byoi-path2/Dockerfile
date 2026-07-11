@@ -50,6 +50,8 @@ WORKDIR /
 # the path-1 contract.
 EXPOSE 8999
 
+USER node
+
 # `bin.spring-voyage-agent-sidecar` from the sidecar package.json. This
 # IS the path-2 conformance contract: the bridge is the image's PID 1
 # (well, with `node` as the actual exec'd binary, but functionally PID 1

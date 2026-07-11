@@ -17,14 +17,14 @@ const reactDir = resolve(require.resolve("react"), "..");
 const reactDomDir = resolve(require.resolve("react-dom"), "..");
 
 export default defineConfig({
-  // Setting jsx: "automatic" matches the tsconfig "jsx: react-jsx"
-  // setting so connector-package TSX files (imported via the
-  // @connector-* aliases below) compile under Vitest's esbuild loader.
+  // Setting the automatic JSX runtime matches the tsconfig JSX setting so
+  // connector-package TSX files (imported via the @connector-* aliases below)
+  // compile under Vitest's Vite 8 Oxc transform.
   // Without this, those files fail with "React is not defined" because
-  // esbuild falls back to the classic runtime for files outside the
+  // the transform falls back to the classic runtime for files outside the
   // web project's own tsconfig include list.
-  esbuild: {
-    jsx: "automatic",
+  oxc: {
+    jsx: { runtime: "automatic" },
   },
   resolve: {
     alias: {

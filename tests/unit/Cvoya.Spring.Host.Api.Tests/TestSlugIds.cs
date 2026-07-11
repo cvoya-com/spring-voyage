@@ -26,11 +26,11 @@ public static class TestSlugIds
 
         return Cache.GetOrAdd(slug, static s =>
         {
-            var bytes = SHA1.HashData(Encoding.UTF8.GetBytes(s));
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(s));
             Span<byte> guidBytes = stackalloc byte[16];
             bytes.AsSpan(0, 16).CopyTo(guidBytes);
 
-            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x50);
+            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x80);
             guidBytes[8] = (byte)((guidBytes[8] & 0x3F) | 0x80);
 
             (guidBytes[0], guidBytes[3]) = (guidBytes[3], guidBytes[0]);

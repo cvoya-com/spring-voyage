@@ -12,7 +12,7 @@
 # run them locally.
 #
 # Usage:
-#   eng/ci/ci-local.sh [dotnet|web|python ...] [--all] [--full] [--skip-dotnet]
+#   eng/ci/ci-local.sh [dotnet|web|python|workflows ...] [--all] [--full] [--skip-dotnet]
 #
 #   (no section)   auto-detect changed areas vs origin/main; falls back to all
 #   --all          run every section regardless of detected changes
@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
     --full)        FULL=1 ;;
     --all)         FORCE_ALL=1 ;;
     --skip-dotnet) SKIP_DOTNET=1 ;;
-    dotnet|web|python) SECTIONS+=("$1") ;;
+    dotnet|web|python|workflows) SECTIONS+=("$1") ;;
     -h|--help)     awk '/^# Local pre-push gate/{p=1} p&&!/^#/{exit} p&&/^#/{sub(/^# ?/,"");print}' "$0"; exit 0 ;;
     *) err "unknown argument: $1"; exit 2 ;;
   esac
@@ -55,20 +55,22 @@ done
 detect_sections() {
   local base="origin/main"
   if ! git rev-parse --verify --quiet "${base}^{commit}" >/dev/null 2>&1; then
-    echo "dotnet web python"; return
+    echo "dotnet web python workflows"; return
   fi
   local files
   files="$( { git diff --name-only "${base}...HEAD" 2>/dev/null
               git diff --name-only HEAD 2>/dev/null
               git diff --name-only --cached 2>/dev/null; } | sort -u )"
   [ -n "$files" ] || { echo ""; return; }
-  local d=0 w=0 p=0 out=""
+  local d=0 w=0 p=0 gha=0 out=""
   printf '%s\n' "$files" | grep -qE '\.(cs|csproj|slnx|props)$|^global\.json$|^NuGet\.config$|^\.config/dotnet-tools\.json$' && d=1
   printf '%s\n' "$files" | grep -qE '^src/Cvoya\.Spring\.Web/|^src/Cvoya\.Spring\.Connector\..*/web/|^eslint\.config\.mjs$|^package(-lock)?\.json$' && w=1
   printf '%s\n' "$files" | grep -qE '^agents/(spring-voyage-agent|spring-voyage-agent-sdk|magazine-langgraph-orchestrator)/' && p=1
+  printf '%s\n' "$files" | grep -qE '^\.github/workflows/|(^|/)Dockerfile$|(^|/)Dockerfile\.|(^|/)(package-lock\.json|packages\.lock\.json)$' && gha=1
   [ "$d" = 1 ] && out="$out dotnet"
   [ "$w" = 1 ] && out="$out web"
   [ "$p" = 1 ] && out="$out python"
+  [ "$gha" = 1 ] && out="$out workflows"
   echo "$out" | xargs
 }
 
@@ -119,9 +121,16 @@ run_python() {
   ruff format --check $dirs || return 1
 }
 
+run_workflows() {
+  say "workflows: zizmor"
+  eng/ci/zizmor.sh || return 1
+  say "workflows: trivy"
+  eng/ci/trivy.sh || return 1
+}
+
 if [ "${#SECTIONS[@]}" -eq 0 ]; then
   if [ "$FORCE_ALL" = 1 ]; then
-    SECTIONS=(dotnet web python)
+    SECTIONS=(dotnet web python workflows)
   else
     read -r -a SECTIONS <<<"$(detect_sections)"
   fi
@@ -139,6 +148,7 @@ for s in "${SECTIONS[@]}"; do
     dotnet) run_dotnet || FAILED+=("dotnet") ;;
     web)    run_web    || FAILED+=("web") ;;
     python) run_python || FAILED+=("python") ;;
+    workflows) run_workflows || FAILED+=("workflows") ;;
     *) warn "unknown section: $s" ;;
   esac
 done

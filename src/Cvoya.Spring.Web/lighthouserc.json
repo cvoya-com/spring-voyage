@@ -1,7 +1,7 @@
 {
   "ci": {
     "collect": {
-      "startServerCommand": "npm start",
+      "startServerCommand": "npm --workspace=spring-voyage-dashboard run start",
       "startServerReadyPattern": "Ready on|Local:|started server on",
       "startServerReadyTimeout": 120000,
       "url": [

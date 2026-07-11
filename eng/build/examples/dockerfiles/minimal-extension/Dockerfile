@@ -24,3 +24,5 @@
 #       image: localhost/my-agent:latest
 
 FROM localhost/spring-voyage-agent-claude-code:latest
+
+USER agent

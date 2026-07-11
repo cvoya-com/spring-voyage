@@ -71,7 +71,7 @@ public class DispatcherCallbackEnvironmentBuilder(
                 $"CallbackBaseUrl:BaseUrl '{_callbackOptions.BaseUrl}' is not a valid absolute http(s) URI.");
         }
 
-        var normalizedBase = baseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
+        var normalizedBase = baseUri.AbsoluteUri.EndsWith('/')
             ? baseUri
             : new Uri(baseUri.AbsoluteUri + "/");
 

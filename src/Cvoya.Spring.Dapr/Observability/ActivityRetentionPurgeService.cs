@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Observability;
 
+using System.Security.Cryptography;
+
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
@@ -44,8 +46,7 @@ public class ActivityRetentionPurgeService(
         // Stagger the first sweep so multiple host replicas don't all
         // hit the database at the same moment after a deploy. A small
         // randomised offset is sufficient — the sweep is idempotent.
-        var rng = new Random();
-        var initialDelay = TimeSpan.FromMinutes(rng.Next(0, 5));
+        var initialDelay = TimeSpan.FromMinutes(RandomNumberGenerator.GetInt32(0, 5));
         try
         {
             await Task.Delay(initialDelay, timeProvider, stoppingToken);

@@ -385,7 +385,7 @@ public static class GitHubAppCommand
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                if (line.TrimStart().StartsWith("#", StringComparison.Ordinal))
+                if (line.TrimStart().StartsWith('#'))
                 {
                     continue;
                 }
@@ -610,7 +610,7 @@ public static class GitHubAppCommand
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                if (line.TrimStart().StartsWith("#", StringComparison.Ordinal))
+                if (line.TrimStart().StartsWith('#'))
                 {
                     continue;
                 }

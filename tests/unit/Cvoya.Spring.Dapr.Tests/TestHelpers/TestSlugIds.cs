@@ -36,12 +36,12 @@ public static class TestSlugIds
         return Cache.GetOrAdd(slug, static s =>
         {
             // SHA-1 of the slug; first 16 bytes form a v5-shaped Guid.
-            var bytes = SHA1.HashData(Encoding.UTF8.GetBytes(s));
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(s));
             Span<byte> guidBytes = stackalloc byte[16];
             bytes.AsSpan(0, 16).CopyTo(guidBytes);
 
             // RFC 4122 v5: set version (5) and variant (10).
-            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x50);
+            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x80);
             guidBytes[8] = (byte)((guidBytes[8] & 0x3F) | 0x80);
 
             // Convert big-endian SHA-1 bytes into the .NET Guid layout

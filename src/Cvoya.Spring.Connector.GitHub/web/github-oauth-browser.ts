@@ -84,15 +84,16 @@ export function buildOAuthClientState(nonce?: string): string | null {
  * the binding-scoped secret-name format use).
  */
 export function mintBindingId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID().replace(/-/g, "");
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID().replace(/-/g, "");
   }
-  // Fallback: should never fire in any browser the portal targets, but
-  // satisfies the typecheck and produces a 32-char hex string with the
-  // same shape so callers don't need to defensive-cast.
-  return Array.from({ length: 32 }, () =>
-    Math.floor(Math.random() * 16).toString(16),
-  ).join("");
+  if (typeof globalThis.crypto?.getRandomValues !== "function") {
+    throw new Error("A cryptographically secure browser random source is required.");
+  }
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function getAllowedOAuthCallbackOrigins(): Set<string> {
