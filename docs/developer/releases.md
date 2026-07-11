@@ -123,13 +123,11 @@ If a critical fix needs to ship on an older minor line (e.g., current is `1.1.x`
 
 ### CI (build, test, lint)
 
-The repository has two continuous-integration workflows under [`.github/workflows/`](../../.github/workflows):
+The repository's continuous-integration and security workflows live under [`.github/workflows/`](../../.github/workflows):
 
-- **[`ci.yml`](../../.github/workflows/ci.yml)** — runs on `push` to `main`, on `pull_request` targeting `main`, and in the merge queue. Jobs:
+- **[`ci.yml`](../../.github/workflows/ci.yml)** — runs on pull requests targeting `main` and in the merge queue. The merged `main` push is not run a third time. Jobs:
   - `changes` — path-filter gate for downstream jobs.
-  - `build` — `dotnet build SpringVoyage.slnx --configuration Release`.
-  - `test` — `dotnet test --solution SpringVoyage.slnx --configuration Release` with a Dapr slim init.
-  - `format` — `dotnet format --verify-no-changes`.
+  - `dotnet` — restores and builds once, then runs `dotnet format --verify-no-changes` and `dotnet test --solution SpringVoyage.slnx --configuration Release` with a Dapr slim init. Formatting is skipped in the merge queue because the pull-request result remains valid for the same source tree.
   - `agent-definitions-lint` — validates referenced paths in agent YAML/markdown definitions.
   - `connector-web-lint` — validates per-connector web submodules.
   - `web-lint` / `web-build` — ESLint and `next build` for the web portal.
