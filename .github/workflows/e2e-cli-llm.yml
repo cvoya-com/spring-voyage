@@ -5,24 +5,18 @@ name: E2E CLI LLM (on-demand)
 # Ollama backend so the dispatcher → agent JSON-RPC round-trip is
 # exercised against the actual `dapr-agent` image.
 #
-# Gating rationale: LLM scenarios pull a model (~2 GB), launch agent
-# containers, and take noticeably longer than the fast pool. They are not
-# safe as a per-PR gate. Instead this workflow runs:
-#
-#   - On a monthly schedule (1st of every month at 06:00 UTC) so transport
-#     regressions (e.g. the 404 reported in #1465) are caught even when no
-#     one runs the lane manually.
-#   - On workflow_dispatch so any contributor can trigger it before
-#     cutting a release, after touching the dispatcher / a2a path, or
-#     when investigating a suspected regression.
+# Gating rationale: CI must have no LLM dependency, so this lane runs on
+# workflow_dispatch only — trigger it before cutting a release, after
+# touching the dispatcher / a2a path, or when investigating a suspected
+# regression (e.g. the 404 reported in #1465). LLM scenarios also pull a
+# model (~2 GB), launch agent containers, and take noticeably longer than
+# the fast pool, so they were never safe as a per-PR gate.
 #
 # The fast suite + the integration tests' A2ADispatchTransportContractTests
 # guard the wire-shape on every PR. This lane confirms the same path with
 # a real LLM in the loop.
 
 on:
-  schedule:
-    - cron: "0 6 1 * *"
   workflow_dispatch:
     inputs:
       spring_api_url:
