@@ -1,7 +1,7 @@
 ---
 name: devops-engineer
 description: Handles Dapr component configuration, Dockerfiles, CI/CD pipelines, and build infrastructure for Spring Voyage v0.1. Use for container builds, deployment config, Dapr component YAML, and solution-level build changes.
-model: opus
+model: inherit
 tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 

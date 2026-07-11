@@ -1,7 +1,7 @@
 ---
 name: security-engineer
 description: Audits Spring Voyage v0.1 code for security issues — tenant isolation violations, credential handling, DI bypass, hardcoded assumptions, and extensibility contract violations. Use for security reviews, threat modeling, and fixing identified vulnerabilities.
-model: opus
+model: inherit
 tools: Read, Write, Edit, Glob, Grep, WebFetch
 ---
 

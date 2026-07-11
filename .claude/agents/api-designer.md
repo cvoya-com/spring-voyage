@@ -1,7 +1,7 @@
 ---
 name: api-designer
 description: Designs Spring Voyage v0.1 API contracts — HTTP endpoint shapes, A2A message contracts, Core domain interfaces, DTOs, and versioning strategy. Use for API surface design, contract review, backward-compatibility analysis, and extensibility planning.
-model: opus
+model: inherit
 tools: Read, Write, Edit, Glob, Grep, WebFetch
 ---
 
