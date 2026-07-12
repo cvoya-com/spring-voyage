@@ -28,7 +28,7 @@ Pitfall: bare `dotnet test SpringVoyage.slnx` exits 0 without running tests. Alw
 
 ### Pre-push checks
 
-Install the git hook once per clone with `eng/install-hooks.sh`; its pre-push gate runs the fast static checks (`eng/ci/ci-local.sh` — build, format, lint, typecheck for the areas you touched) automatically before every push. CI runs the full `/build`, `/lint`, `/test` on the PR and again in the merge queue, so a regression is caught regardless.
+Install the git hook once per clone with `eng/install-hooks.sh`; its pre-push gate runs the fast static checks (`eng/ci/ci-local.sh` — build, format, lint, typecheck for the areas you touched) automatically before every push. CI runs the full `/build`, `/lint`, `/test` on the PR and again in the merge queue, reusing one .NET restore/build for formatting and tests. The resulting `main` push does not repeat ordinary CI, so a regression is caught before merge without a third identical run.
 
 Two things the fast hook does **not** run, so keep them in mind: `/test` is solution-wide for a reason — integration tests (`tests/integration/Cvoya.Spring.Integration.Tests`) routinely break first when API contracts change, and a scoped `dotnet test path/to/single.csproj` is no substitute. A dispatched sub-agent's claim of "tests pass" means the full solution-wide `/test` (e.g. `eng/ci/ci-local.sh --full`), not a project-scoped subset.
 

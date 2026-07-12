@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   merge_group:
@@ -226,41 +224,10 @@ jobs:
           advanced-security: false
           annotations: true
 
-  build:
-    name: Build
+  dotnet:
+    name: Build, format, and test
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.ci_workflow == 'true'
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        with:
-          dotnet-version: "10.0.x"
-          cache: true
-          cache-dependency-path: |
-            **/*.csproj
-            Directory.Packages.props
-            global.json
-            NuGet.config
-
-      - name: Restore dependencies
-        run: dotnet restore SpringVoyage.slnx
-
-      - name: Restore dotnet tools (Kiota)
-        run: dotnet tool restore
-
-      - name: Build
-        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    needs: [changes, build]
     if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.ci_workflow == 'true'
     timeout-minutes: 30
 
@@ -324,6 +291,12 @@ jobs:
 
       - name: Build
         run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
+
+      # Formatting is a static-input check, so the pull-request result remains valid in the
+      # merge queue. Reuse the build above instead of restoring and compiling a third time.
+      - name: Check formatting
+        if: github.event_name != 'merge_group'
+        run: dotnet format SpringVoyage.slnx --no-restore --verify-no-changes
 
       - name: Test
         # Wrapped in a wall-clock watchdog (#2604): on rare hangs in
@@ -436,47 +409,6 @@ jobs:
 
           echo
           echo "All packages validated cleanly."
-
-  format:
-    name: Format check
-    runs-on: ubuntu-latest
-    needs: changes
-    # Skipped in the merge queue: formatting is a static-input check of the
-    # PR's own code (no dependency on the state of main), so a pass on the
-    # pull_request run stays valid through the queue.
-    if: >
-      github.event_name != 'merge_group' &&
-      (needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.ci_workflow == 'true')
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        with:
-          dotnet-version: "10.0.x"
-          cache: true
-          cache-dependency-path: |
-            **/*.csproj
-            Directory.Packages.props
-            global.json
-            NuGet.config
-
-      - name: Restore dependencies
-        run: dotnet restore SpringVoyage.slnx
-
-      - name: Restore dotnet tools (Kiota)
-        run: dotnet tool restore
-
-      # The CLI's GenerateKiotaClient target re-emits the gitignored
-      # Generated/ tree; format needs those files to exist for analysis.
-      - name: Build (regenerates Kiota client)
-        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
-
-      - name: Check formatting
-        run: dotnet format SpringVoyage.slnx --no-restore --verify-no-changes
 
   agent-definitions-lint:
     name: Lint agent definitions
@@ -1485,9 +1417,7 @@ jobs:
     needs:
       - changes
       - workflow-yaml
-      - build
-      - test
-      - format
+      - dotnet
       - agent-definitions-lint
       - runtime-catalog-lint
       - sample-build
@@ -1521,9 +1451,7 @@ jobs:
       - name: Verify all required jobs passed (or were skipped by path filter)
         shell: bash
         env:
-          BUILD_RESULT: ${{ needs.build.result }}
-          TEST_RESULT: ${{ needs.test.result }}
-          FORMAT_RESULT: ${{ needs.format.result }}
+          DOTNET_RESULT: ${{ needs.dotnet.result }}
           LINT_RESULT: ${{ needs.agent-definitions-lint.result }}
           RUNTIME_CATALOG_RESULT: ${{ needs.runtime-catalog-lint.result }}
           SAMPLE_BUILD_RESULT: ${{ needs.sample-build.result }}
@@ -1552,9 +1480,7 @@ jobs:
         run: |
           echo "changes=$CHANGES_RESULT"
           echo "workflow-yaml=$WORKFLOW_YAML_RESULT"
-          echo "build=$BUILD_RESULT"
-          echo "test=$TEST_RESULT"
-          echo "format=$FORMAT_RESULT"
+          echo "dotnet=$DOTNET_RESULT"
           echo "agent-definitions-lint=$LINT_RESULT"
           echo "runtime-catalog-lint=$RUNTIME_CATALOG_RESULT"
           echo "sample-build=$SAMPLE_BUILD_RESULT"
@@ -1591,9 +1517,7 @@ jobs:
           # cancellation, timeout - fails the PR.
           ok() { [[ "$1" == "success" || "$1" == "skipped" ]]; }
 
-          ok "$BUILD_RESULT"           || { echo "::error::build failed"; exit 1; }
-          ok "$TEST_RESULT"            || { echo "::error::test failed"; exit 1; }
-          ok "$FORMAT_RESULT"          || { echo "::error::format failed"; exit 1; }
+          ok "$DOTNET_RESULT"          || { echo "::error::build, format, or tests failed"; exit 1; }
           ok "$LINT_RESULT"            || { echo "::error::agent-definitions-lint failed"; exit 1; }
           ok "$RUNTIME_CATALOG_RESULT" || { echo "::error::runtime-catalog-lint failed"; exit 1; }
           ok "$SAMPLE_BUILD_RESULT"    || { echo "::error::sample-build failed"; exit 1; }
