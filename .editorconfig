@@ -420,55 +420,6 @@ dotnet_naming_style.s_camelcase.capitalization = camel_case
 [*.cs]
 dotnet_analyzer_diagnostic.category-Security.severity = error
 
-# xUnit test names encode the exercised member, scenario, and expectation;
-# this repository requires that underscore-delimited convention.
-# Inline test-data arrays are intentionally local to each case and never run
-# on production hot paths. Both exclusions are limited to test sources.
-[tests/**/*.cs]
-dotnet_diagnostic.CA1707.severity = none
-dotnet_diagnostic.CA1861.severity = none
-dotnet_diagnostic.CA1859.severity = none
-dotnet_diagnostic.CA1822.severity = none
-
-# Launch specifications intentionally keep collection abstractions at their
-# boundaries and allocate probe arguments per invocation. The methods run once
-# per launch/probe, so forcing concrete collection types or shared mutable
-# arrays would make these extension contracts less clear for no meaningful gain.
-[src/Cvoya.Spring.AgentRuntimes/Launchers/*.cs]
-dotnet_diagnostic.CA1859.severity = none
-dotnet_diagnostic.CA1861.severity = none
-
-# These logs sit on launch and provider-error paths. Their contextual payloads
-# are intentionally assembled only at the call site; generated delegates would
-# duplicate the launcher/provider-specific failure handling without affecting
-# request-path performance.
-[src/Cvoya.Spring.AgentRuntimes/Launchers/*.cs]
-dotnet_diagnostic.CA1848.severity = none
-dotnet_diagnostic.CA1873.severity = none
-
-[src/Cvoya.Spring.ModelProviders/*.cs]
-dotnet_diagnostic.CA1848.severity = none
-
-# These helpers deliberately expose collection interfaces at their extension
-# boundaries; callers must not depend on the current List/array implementation.
-[src/Cvoya.Spring.Manifest/TemplateResolver.cs]
-dotnet_diagnostic.CA1859.severity = none
-
-[src/Cvoya.Spring.Manifest/PackageManifestParser.cs]
-dotnet_diagnostic.CA1859.severity = none
-
-[src/Cvoya.Spring.Connector.Slack.Provisioning/SlackAppManifest.cs]
-dotnet_diagnostic.CA1859.severity = none
-
-[src/Cvoya.Spring.AgentSdk/SpringAgent.cs]
-dotnet_diagnostic.CA1859.severity = none
-
-# MessagingClient is a long-lived SDK helper whose public abstraction does not
-# expose disposal; introducing IDisposable only on the implementation would
-# encourage callers to cast and would not make its lifecycle deterministic.
-[src/Cvoya.Spring.AgentSdk/MessagingClient.cs]
-dotnet_diagnostic.CA1001.severity = none
-
 # Recommended-mode quality rules remain visible in editors but do not block
 # builds while their repository-wide remediation is delivered in reviewable
 # slices. These are deliberately rule-level exceptions: security remains an
@@ -481,6 +432,10 @@ dotnet_diagnostic.CA1001.severity = none
 # structured log call. The remaining rules require behavioural API changes,
 # culture decisions, or framework-version choices and stay visible until their
 # targeted remediation slices land.
+#
+# The per-path exceptions below must stay after this block: when several
+# sections match a file, the later one wins, so placing them before this
+# baseline would silently re-elevate their rules to suggestion.
 [*.cs]
 dotnet_diagnostic.CA1001.severity = suggestion
 dotnet_diagnostic.CA1068.severity = suggestion
@@ -514,3 +469,52 @@ dotnet_diagnostic.CA2201.severity = suggestion
 dotnet_diagnostic.CA1310.severity = suggestion
 dotnet_diagnostic.CA1847.severity = suggestion
 dotnet_diagnostic.CA1816.severity = suggestion
+
+# xUnit test names encode the exercised member, scenario, and expectation;
+# this repository requires that underscore-delimited convention (CA1707).
+# Inline test-data arrays, instance test methods, and concrete local
+# collections are idiomatic in test bodies and never run on production hot
+# paths (CA1861, CA1822, CA1859). All four exclusions are limited to test
+# sources.
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1859.severity = none
+dotnet_diagnostic.CA1822.severity = none
+
+# Launch specifications intentionally keep collection abstractions at their
+# boundaries and allocate probe arguments per invocation. The methods run once
+# per launch/probe, so forcing concrete collection types or shared mutable
+# arrays would make these extension contracts less clear for no meaningful
+# gain (CA1859, CA1861). Their logs sit on launch and provider-error paths
+# whose contextual payloads are intentionally assembled only at the call site;
+# generated delegates would duplicate the launcher/provider-specific failure
+# handling without affecting request-path performance (CA1848, CA1873).
+[src/Cvoya.Spring.AgentRuntimes/Launchers/*.cs]
+dotnet_diagnostic.CA1859.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1873.severity = none
+
+[src/Cvoya.Spring.ModelProviders/*.cs]
+dotnet_diagnostic.CA1848.severity = none
+
+# These helpers deliberately expose collection interfaces at their extension
+# boundaries; callers must not depend on the current List/array implementation.
+[src/Cvoya.Spring.Manifest/TemplateResolver.cs]
+dotnet_diagnostic.CA1859.severity = none
+
+[src/Cvoya.Spring.Manifest/PackageManifestParser.cs]
+dotnet_diagnostic.CA1859.severity = none
+
+[src/Cvoya.Spring.Connector.Slack.Provisioning/SlackAppManifest.cs]
+dotnet_diagnostic.CA1859.severity = none
+
+[src/Cvoya.Spring.AgentSdk/SpringAgent.cs]
+dotnet_diagnostic.CA1859.severity = none
+
+# MessagingClient is a long-lived SDK helper whose public abstraction does not
+# expose disposal; introducing IDisposable only on the implementation would
+# encourage callers to cast and would not make its lifecycle deterministic.
+[src/Cvoya.Spring.AgentSdk/MessagingClient.cs]
+dotnet_diagnostic.CA1001.severity = none
