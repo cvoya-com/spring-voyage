@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
+using System.Globalization;
+
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
@@ -110,7 +112,7 @@ public class A2AProcessLauncher(
             ["SPRING_THREAD_ID"] = context.ThreadId,
             // AGENT_PORT is the port the in-container engine binds its A2A
             // server to; the dispatcher dials it after readiness.
-            ["AGENT_PORT"] = DefaultAgentPort.ToString(),
+            ["AGENT_PORT"] = DefaultAgentPort.ToString(CultureInfo.InvariantCulture),
             // ADR-0055 §5 / ADR-0058: per-member workspace mount. The engine
             // keeps its durable checkpoint here (ADR-0066 §4).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),

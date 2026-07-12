@@ -18,7 +18,7 @@ For the OSS core platform (`Cvoya.Spring.*` assemblies under `src/`), a change i
 
 1. **Public API removal or rename.** Any public type, member, or parameter in `Cvoya.Spring.Core`, `Cvoya.Spring.Dapr`, `Cvoya.Spring.A2A`, `Cvoya.Spring.Host.Api`, `Cvoya.Spring.Cli`, or a published connector package is removed, renamed, or gets an incompatible signature.
 2. **Behavioural contract change.** An existing method still compiles but now returns a different shape, throws on previously valid input, or changes its persistence format.
-3. **Extension-point break.** A change that forces downstream consumers (notably the private Spring Voyage Cloud repo) to modify their DI wiring, inheritance hierarchies, or overrides. Extensibility is a first-class contract in this repo — see [`AGENTS.md` § "Open-Source Platform & Extensibility"](../../AGENTS.md).
+3. **Extension-point break.** A change that forces downstream consumers (notably the private Spring Voyage Cloud repo) to modify their DI wiring, inheritance hierarchies, or overrides. Extensibility is a first-class contract in this repo — see [`AGENTS.md` § "Source-available platform and extensibility"](../../AGENTS.md).
 4. **Persistent state / schema change without migration.** Any change to actor state keys, EF Core entities, Dapr state shapes, or OpenAPI contracts that does not ship with a compatible migration path.
 5. **CLI / web surface removal.** Removing a `spring` CLI subcommand or flag, or a web portal feature that was previously documented. Per [`CONVENTIONS.md` § 14](../../CONVENTIONS.md#14-ui--cli-feature-parity), UI and CLI parity is enforced — both surfaces move together.
 6. **Configuration break.** Renaming an environment variable, Dapr component name, appsettings key, or connector binding in a way that stops existing deployments from starting.
@@ -187,7 +187,7 @@ Trusted-publisher setup on nuget.org (one-time, owner-side): create a trusted pu
 
 `src/Cvoya.Spring.Cli/README.md` is the package-facing README shipped inside the `.nupkg` (via `<PackageReadmeFile>`); it is intentionally narrower than the repo-root `README.md` — focused on the CLI tool, not the platform.
 
-Other Spring Voyage packages (`Cvoya.Spring.Core`, `Cvoya.Spring.Dapr`, the connector abstractions) are **not** published to NuGet. Consumers outside the open-source repo pin to a specific commit SHA on `main` via git submodule or project reference. Publication of those packages is tracked separately in [#1395](https://github.com/cvoya-com/spring-voyage/issues/1395).
+Other Spring Voyage packages (`Cvoya.Spring.Core`, `Cvoya.Spring.Dapr`, the connector abstractions) are **not** published to NuGet. Consumers outside this repository pin to a specific commit SHA on `main` via git submodule or project reference. Publication of those packages is tracked separately in [#1395](https://github.com/cvoya-com/spring-voyage/issues/1395).
 
 ## Container Image Tagging and Publishing
 

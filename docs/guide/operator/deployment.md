@@ -1,6 +1,6 @@
 # Deployment
 
-This guide walks an operator from zero to a working single-host Spring Voyage deployment. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or single server).
+This guide walks an operator from zero to a working single-host Spring Voyage deployment. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the source-available single-host scenario (workstation, home server, or single server).
 
 Operator tasks above provisioning (backups, key management, migrations) are covered separately.
 

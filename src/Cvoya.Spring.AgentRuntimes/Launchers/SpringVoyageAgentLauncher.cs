@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.AgentRuntimes.Launchers;
 
+using System.Globalization;
+
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
@@ -181,8 +183,8 @@ public class SpringVoyageAgentLauncher(
             // contract name introduced by issue #1097 — kept alongside
             // AGENT_PORT for back-compat with existing deployments while
             // PR 5 cuts the dispatcher over to the new field.
-            ["AGENT_PORT"] = DefaultAgentPort.ToString(),
-            ["DAPR_AGENT_PORT"] = DefaultAgentPort.ToString(),
+            ["AGENT_PORT"] = DefaultAgentPort.ToString(CultureInfo.InvariantCulture),
+            ["DAPR_AGENT_PORT"] = DefaultAgentPort.ToString(CultureInfo.InvariantCulture),
             // The Python `dapr` SDK defaults its gRPC client deadline to
             // 60 s (`DAPR_API_TIMEOUT_SECONDS`); the Conversation Alpha2
             // unary call inherits that deadline. With ~58 MCP tool

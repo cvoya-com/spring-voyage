@@ -1,6 +1,6 @@
 # Contributing to Spring Voyage
 
-Thank you for your interest in contributing to Spring Voyage. This document covers the workflow for the open-source platform.
+Thank you for your interest in contributing to Spring Voyage. This document covers the workflow for the source-available platform.
 
 ## Development Setup
 

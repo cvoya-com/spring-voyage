@@ -38,7 +38,7 @@ using System.Threading.Tasks;
 /// pre-register alternative requirements (<c>services.AddSingleton</c> before
 /// <c>AddCvoyaSpring*()</c>) or substitute a tenant-scoped validator by
 /// pre-registering <c>IStartupConfigurationValidator</c>. See
-/// <c>AGENTS.md §</c> "Open-Source Platform &amp; Extensibility".
+/// <c>AGENTS.md §</c> "Source-available platform and extensibility".
 /// </para>
 /// </remarks>
 public interface IConfigurationRequirement

@@ -22,7 +22,7 @@ using Xunit;
 /// <c>TryAddSingleton</c>, so a cloud overlay that pre-registers its own
 /// implementation before calling <see cref="ServiceCollectionExtensions.AddCvoyaSpringApiServices"/>
 /// keeps its own registration. Mirrors the extensibility rule in
-/// <c>AGENTS.md</c> § "Open-source platform and extensibility" and the
+/// <c>AGENTS.md</c> § "Source-available platform and extensibility" and the
 /// <c>TryAdd*</c> guidance in <c>CONVENTIONS.md</c> § Dependency Injection.
 /// </summary>
 public class RoleClaimSourceRegistrationTests

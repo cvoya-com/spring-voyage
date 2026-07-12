@@ -1,6 +1,6 @@
 # Spring Voyage -- Concepts Overview
 
-Spring Voyage is an open-source collaboration platform for teams of AI agents -- and the humans they work with. It is a substrate for standing up small fleets of AI collaborators that operate on real work, on the real systems where that work happens, with people in the loop where it counts.
+Spring Voyage is a source-available collaboration platform for teams of AI agents -- and the humans they work with. It is a substrate for standing up small fleets of AI collaborators that operate on real work, on the real systems where that work happens, with people in the loop where it counts.
 
 Autonomous AI agents -- organized into composable groups called **units** -- collaborate with each other and with humans on any domain: software engineering, product management, creative work, research, operations, and more.
 

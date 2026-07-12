@@ -8,7 +8,7 @@
 
 ![Spring Voyage](docs/spring-voyage-sailboat-light.png)
 
-> **Spring Voyage is now open source.** Read the launch announcement — [_The boat is in the water_](https://savas.me/2026/06/04/the-boat-is-in-the-water-spring-voyage-is-open-source/).
+> **Spring Voyage is source-available under the Business Source License 1.1.** You may read, modify, and run it in production — including commercially — but may not offer it to third parties as a managed AI-agent-collaboration service. That restriction ends on 10 April 2030, when the license converts to Apache 2.0.
 
 ## About
 
@@ -16,7 +16,7 @@ Spring Voyage is developed by [CVOYA](https://cvoya.com) and led by [Savas Paras
 
 ## Introduction
 
-Spring Voyage is an open-source human–AI agent collaboration platform. Humans and agents work together toward a goal in a domain, as members of the same team, each with their own roles, responsibilities, and expertise. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via **messages**.
+Spring Voyage is a source-available human–AI agent collaboration platform. Humans and agents work together toward a goal in a domain, as members of the same team, each with their own roles, responsibilities, and expertise. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via **messages**.
 
 The platform does not orchestrate. It prescribes no workflows and no fixed way of working — how a team communicates, collaborates, and organizes is left to the instructions its agents are given. What the platform provides instead are the building blocks teams need:
 

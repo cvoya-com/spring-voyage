@@ -6,7 +6,7 @@ a single machine. Consumed by both source-clone operators (via
 installer (see [`eng/install/`](../install/README.md) — `curl … install.sh | bash`)
 — both paths run the same scripts. For Kubernetes / cloud-scale deployment see
 the private Spring Voyage Cloud repository — this directory targets the
-open-source single-host scenario.
+source-available single-host scenario.
 
 Source-free operators do not need to touch this directory directly; the
 installer copies its contents into `~/.spring-voyage/current/` and runs

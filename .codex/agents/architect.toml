@@ -14,7 +14,7 @@ Platform architect for Spring Voyage. Owns architecture decisions, boundary desi
 
 - `docs/decisions/README.md` — ADR index and authoring conventions
 - `docs/architecture/README.md` — architecture index
-- `AGENTS.md` § "Open-source platform and extensibility"
+- `AGENTS.md` § "Source-available platform and extensibility"
 
 ## Architecture-specific rules
 

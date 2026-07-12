@@ -346,7 +346,7 @@ Central package management via `Directory.Packages.props` — all NuGet versions
 
 ## 12. Extensibility — Tenancy
 
-General extensibility rules (`TryAdd*`, no-seal, visibility, virtual hooks, no tenant assumptions, no statics) live in [`AGENTS.md`](AGENTS.md) § "Open-source platform and extensibility". The conventions below are the tenancy-specific rules that belong with code patterns.
+General extensibility rules (`TryAdd*`, no-seal, visibility, virtual hooks, no tenant assumptions, no statics) live in [`AGENTS.md`](AGENTS.md) § "Source-available platform and extensibility". The conventions below are the tenancy-specific rules that belong with code patterns.
 
 **Multi-tenancy (business-data entities):** every new business-data entity implements `Cvoya.Spring.Core.Tenancy.ITenantScopedEntity` with a `Guid TenantId` column, and its `IEntityTypeConfiguration` adds the combined tenant + soft-delete query filter — `HasQueryFilter(e => e.TenantId == tenantContext.CurrentTenantId && e.DeletedAt == null)` — dropping the soft-delete clause only for entities without a `DeletedAt` column. The DbContext auto-populates `TenantId` from the injected `ITenantContext` on insert; write sites do not set it explicitly. The OSS deployment runs functionally single-tenant; every fresh-install row is owned by `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default` (the deterministic v5 UUID `dd55c4ea-8d72-5e43-a9df-88d07af02b69`; `OssTenantIds.DefaultDashed` and `OssTenantIds.DefaultNoDash` expose the literal string forms for configs, dashboards, and audit-log greps). Never hardcode a string `"default"` — the tenant id is a `Guid`. System/ops tables (migrations history, startup config) stay global.
 

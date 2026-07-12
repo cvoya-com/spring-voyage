@@ -209,7 +209,7 @@ Each analytics subsection is a filtered roll-up over the same activity event str
 
 ## 4. Standalone vs hosted — where they diverge
 
-The OSS repository has no concept of a tenant (see `AGENTS.md` § "Open-Source Platform & Extensibility", `docs/architecture/security.md`). The private Spring Voyage Cloud repository layers tenancy, OAuth/SSO, billing, and premium features on top via git submodule and DI overrides.
+The OSS repository has no concept of a tenant (see `AGENTS.md` § "Source-available platform and extensibility", `docs/architecture/security.md`). The private Spring Voyage Cloud repository layers tenancy, OAuth/SSO, billing, and premium features on top via git submodule and DI overrides.
 
 The portal must cleanly support both. The core move: **all tenant-aware surfaces are mounted by the hosted build at known extension points, not bolted into the OSS routes.**
 
