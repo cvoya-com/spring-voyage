@@ -20,7 +20,7 @@ using Cvoya.Spring.Dapr.Auth;
 /// <remarks>
 /// Registered as <c>TryAddSingleton</c> so cloud overlays can layer
 /// audit logging or cross-tenant guards on top without displacing the
-/// OSS default (per <c>AGENTS.md</c> § "Open-source platform and
+/// OSS default (per <c>AGENTS.md</c> § "Source-available platform and
 /// extensibility").
 /// </remarks>
 public interface IUnitLiveConfigStore

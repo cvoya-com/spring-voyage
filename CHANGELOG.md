@@ -99,7 +99,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-#### Open-source foundation
+#### Source-available foundation
 
 - Business Source License 1.1 (converts to Apache 2.0 on 2030-04-10), NOTICE, copyright headers, dependency audit, and community files ([#11](https://github.com/cvoya-com/spring-voyage/pull/11), [#14](https://github.com/cvoya-com/spring-voyage/pull/14), [#15](https://github.com/cvoya-com/spring-voyage/pull/15)).
 - Contributor guide, issue templates, and cross-repo agent awareness ([21c72aa](https://github.com/cvoya-com/spring-voyage/commit/21c72aa)).

@@ -184,5 +184,5 @@ under test in `<ExtensionProvider override={{ ... }}>` or call
 
 - Portal plan: [`docs/design/portal-exploration.md`](../../../../../docs/design/portal-exploration.md) § 4.
 - Command palette issue: [#439](https://github.com/cvoya-com/spring-voyage/issues/439).
-- Extensibility rules: `AGENTS.md` § "Open-Source Platform & Extensibility".
+- Extensibility rules: `AGENTS.md` § "Source-available platform and extensibility".
 - **Drawer-panel extension slot ADR:** [`docs/decisions/0032-drawer-panel-extension-slot.md`](../../../../../docs/decisions/0032-drawer-panel-extension-slot.md) — canonical contract, ordering, CLI parity, and generalisation notes.

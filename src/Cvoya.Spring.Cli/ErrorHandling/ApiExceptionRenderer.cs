@@ -27,7 +27,7 @@ using Microsoft.Kiota.Abstractions.Serialization;
 /// <see cref="ApiExceptionRenderer"/> and replace
 /// <see cref="Instance"/> at startup to swap the cloud-host's branded
 /// error format in. Per the OSS extensibility contract
-/// (<c>AGENTS.md § "Open-Source Platform &amp; Extensibility"</c>) this
+/// (<c>AGENTS.md § "Source-available platform and extensibility"</c>) this
 /// type stays unsealed and exposes its decision points as
 /// <c>protected virtual</c> hooks.
 /// </summary>

@@ -10,7 +10,7 @@ namespace Cvoya.Spring.Core.ModelProviders;
 /// <remarks>
 /// Intentionally not <c>sealed</c> so private-repo providers / connector
 /// types can extend the shape with provider-specific diagnostic fields
-/// (e.g. throttling reasons) without forking the open-source contract.
+/// (e.g. throttling reasons) without forking the public contract.
 /// </remarks>
 /// <param name="Valid">
 /// Convenience flag: <c>true</c> only when <paramref name="Status"/> is

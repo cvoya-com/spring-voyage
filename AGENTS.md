@@ -1,6 +1,6 @@
 # Spring Voyage — Project Rules
 
-An open-source collaboration platform for teams of AI agents — and the humans they work with. General-purpose, domain-agnostic. Built on .NET 10 and Dapr. Namespace: `Cvoya.Spring.*`.
+A source-available collaboration platform for teams of AI agents — and the humans they work with. General-purpose, domain-agnostic. Built on .NET 10 and Dapr. Namespace: `Cvoya.Spring.*`.
 
 ## Coding conventions
 
@@ -40,9 +40,9 @@ When shipping a feature, also update the relevant guide doc, and add a `docs/con
 
 For changes under `src/Cvoya.Spring.Web/`, keep `src/Cvoya.Spring.Web/DESIGN.md` in sync — it is the portal's visual contract.
 
-## Open-source platform and extensibility
+## Source-available platform and extensibility
 
-This repository is the **public, open-source core** of Spring Voyage. A private repository extends it via git submodule and dependency injection — adding multi-tenancy, OAuth/SSO, billing, and premium features.
+This repository is the **public, source-available core** of Spring Voyage. A private repository extends it via git submodule and dependency injection — adding multi-tenancy, OAuth/SSO, billing, and premium features.
 
 - **Don't bypass `ITenantContext`.** Resolve the current tenant through `ITenantContext.CurrentTenantId` (a `Guid`). Never hardcode the literal string `"default"` and never assume only one tenant exists. The OSS deployment's fresh-install rows are owned by `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default` (a deterministic v5 UUID; see [`docs/architecture/data-and-identity.md`](docs/architecture/data-and-identity.md)) — reference the constant from code, never the literal string. New persisted entities that should be tenant-scoped must implement `ITenantScopedEntity` so the cloud host can enforce isolation through its scoped overrides.
 - **Don't make services static or use singletons outside DI.** Everything must go through the container so the private repo can control lifetime and scoping.
