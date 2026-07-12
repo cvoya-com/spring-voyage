@@ -2,7 +2,7 @@
 
 > Tracking: [#440](https://github.com/cvoya-com/spring-voyage/issues/440).
 
-The Spring Voyage portal is the **open-source core**. A private
+The Spring Voyage portal is the **source-available core**. A private
 repository extends it via DI-style registration and git submodule to
 add multi-tenancy, OAuth/SSO, billing, RBAC, and premium surfaces.
 

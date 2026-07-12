@@ -2,7 +2,7 @@
 
 Definitions of key terms used throughout the Spring Voyage documentation.
 
-**Spring Voyage** is an open-source collaboration platform for teams of AI agents — and the humans they work with. Throughout this glossary, "platform" refers to Spring Voyage. The platform delivers messages between agents; it does not orchestrate. Collaboration between humans and agents is the larger frame the platform exists to make tractable.
+**Spring Voyage** is a source-available collaboration platform for teams of AI agents — and the humans they work with. Throughout this glossary, "platform" refers to Spring Voyage. The platform delivers messages between agents; it does not orchestrate. Collaboration between humans and agents is the larger frame the platform exists to make tractable.
 
 ---
 

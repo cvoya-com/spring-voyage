@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core;
 
+using System.Diagnostics.CodeAnalysis;
+
 /// <summary>
 /// Represents the result of an operation that can either succeed with a value or fail with an error.
 /// </summary>
@@ -37,6 +39,10 @@ public readonly record struct Result<TValue, TError>
     /// </summary>
     /// <param name="value">The success value.</param>
     /// <returns>A successful result.</returns>
+    [SuppressMessage(
+        "Design",
+        "CA1000:Do not declare static members on generic types",
+        Justification = "These type-inferred factory methods are the public Result API; moving them would make expected-failure handling less clear at call sites.")]
     public static Result<TValue, TError> Success(TValue value) => new(value, default, true);
 
     /// <summary>
@@ -44,5 +50,9 @@ public readonly record struct Result<TValue, TError>
     /// </summary>
     /// <param name="error">The error value.</param>
     /// <returns>A failed result.</returns>
+    [SuppressMessage(
+        "Design",
+        "CA1000:Do not declare static members on generic types",
+        Justification = "These type-inferred factory methods are the public Result API; moving them would make expected-failure handling less clear at call sites.")]
     public static Result<TValue, TError> Failure(TError error) => new(default, error, false);
 }

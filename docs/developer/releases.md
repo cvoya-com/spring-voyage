@@ -187,7 +187,7 @@ Trusted-publisher setup on nuget.org (one-time, owner-side): create a trusted pu
 
 `src/Cvoya.Spring.Cli/README.md` is the package-facing README shipped inside the `.nupkg` (via `<PackageReadmeFile>`); it is intentionally narrower than the repo-root `README.md` — focused on the CLI tool, not the platform.
 
-Other Spring Voyage packages (`Cvoya.Spring.Core`, `Cvoya.Spring.Dapr`, the connector abstractions) are **not** published to NuGet. Consumers outside the open-source repo pin to a specific commit SHA on `main` via git submodule or project reference. Publication of those packages is tracked separately in [#1395](https://github.com/cvoya-com/spring-voyage/issues/1395).
+Other Spring Voyage packages (`Cvoya.Spring.Core`, `Cvoya.Spring.Dapr`, the connector abstractions) are **not** published to NuGet. Consumers outside this repository pin to a specific commit SHA on `main` via git submodule or project reference. Publication of those packages is tracked separately in [#1395](https://github.com/cvoya-com/spring-voyage/issues/1395).
 
 ## Container Image Tagging and Publishing
 

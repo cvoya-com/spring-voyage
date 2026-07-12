@@ -1,6 +1,6 @@
 # Spring Voyage Documentation
 
-Spring Voyage is an open-source collaboration platform for teams of AI agents — and the humans they work with. A general-purpose, domain-agnostic substrate where autonomous AI agents organize into composable groups (units) and collaborate on any domain.
+Spring Voyage is a source-available collaboration platform for teams of AI agents — and the humans they work with. A general-purpose, domain-agnostic substrate where autonomous AI agents organize into composable groups (units) and collaborate on any domain.
 
 ## Start with the concepts
 

@@ -36,8 +36,7 @@ public class CallbackListenerTests
         }
         finally
         {
-            listener.Stop();
-            ((IDisposable)listener).Dispose();
+            DisposeListener(listener);
         }
     }
 
@@ -81,8 +80,7 @@ public class CallbackListenerTests
             }
             finally
             {
-                listener.Stop();
-                ((IDisposable)listener).Dispose();
+                DisposeListener(listener);
             }
         }
         finally
@@ -118,8 +116,7 @@ public class CallbackListenerTests
                     var (listener, _) = CallbackListener.BindHttpListenerWithRetry(
                         maxAttempts: 2,
                         portPicker: () => port);
-                    listener.Stop();
-                    ((IDisposable)listener).Dispose();
+                    DisposeListener(listener);
                 }
                 catch (HttpListenerException)
                 {
@@ -131,8 +128,7 @@ public class CallbackListenerTests
         }
         finally
         {
-            try { occupied.Stop(); } catch { }
-            try { ((IDisposable)occupied).Dispose(); } catch { }
+            DisposeListener(occupied);
         }
     }
 
@@ -165,8 +161,7 @@ public class CallbackListenerTests
         }
         finally
         {
-            listener.Stop();
-            ((IDisposable)listener).Dispose();
+            DisposeListener(listener);
         }
     }
 
@@ -194,8 +189,7 @@ public class CallbackListenerTests
         }
         finally
         {
-            listener.Stop();
-            ((IDisposable)listener).Dispose();
+            DisposeListener(listener);
         }
     }
 
@@ -211,8 +205,16 @@ public class CallbackListenerTests
         }
         finally
         {
-            try { listener.Stop(); } catch { }
-            try { ((IDisposable)listener).Dispose(); } catch { }
+            DisposeListener(listener);
         }
+    }
+
+    private static void DisposeListener(HttpListener listener)
+    {
+        // Calling Stop before Dispose lets another test bind the released port
+        // between the two operations. HttpListener then tries to remove its old
+        // prefix from the new listener and throws AddressAlreadyInUse. Dispose
+        // performs the complete close under one operation.
+        ((IDisposable)listener).Dispose();
     }
 }

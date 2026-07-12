@@ -1,6 +1,6 @@
 # Spring Voyage -- User Guide
 
-Spring Voyage is an open-source collaboration platform for teams of AI agents -- and the humans they work with. You stand up small fleets of AI collaborators that operate on real work, on the real systems where that work happens, with people in the loop where it counts. A unit is an agent that has children -- units compose recursively. The platform delivers one-way messages between agents, units, and humans; it does not orchestrate. How a unit routes work across its members is its own runtime's decision -- see the [concepts overview](../../concepts/overview.md) for the full mental model.
+Spring Voyage is a source-available collaboration platform for teams of AI agents -- and the humans they work with. You stand up small fleets of AI collaborators that operate on real work, on the real systems where that work happens, with people in the loop where it counts. A unit is an agent that has children -- units compose recursively. The platform delivers one-way messages between agents, units, and humans; it does not orchestrate. How a unit routes work across its members is its own runtime's decision -- see the [concepts overview](../../concepts/overview.md) for the full mental model.
 
 This guide covers how to use Spring Voyage through the `spring` CLI. It walks through authentication, creating and managing units and agents, sending messages, observing activity, and day-to-day operations.
 

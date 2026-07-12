@@ -49,6 +49,8 @@ public class ClaudeCodeLauncher(
     ILoggerFactory loggerFactory,
     IAgentCallbackEnvironmentBuilder? callbackEnvironmentBuilder = null) : IAgentRuntimeLauncher
 {
+    private static readonly JsonSerializerOptions s_indentedJsonOptions = new() { WriteIndented = true };
+
     /// <summary>
     /// Provider id this launcher consumes from the catalogue's
     /// <c>(provider, authMethod)</c> edge per ADR-0038. The Claude agent
@@ -566,7 +568,7 @@ public class ClaudeCodeLauncher(
     }
 
     private static string SerializeMcpConfig(object mcpConfig) =>
-        JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true });
+        JsonSerializer.Serialize(mcpConfig, s_indentedJsonOptions);
 
     private async Task ResolveRuntimeCredentialAsync(
         AgentLaunchContext context,

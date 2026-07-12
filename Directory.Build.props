@@ -4,15 +4,16 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <AnalysisMode>Default</AnalysisMode>
+    <AnalysisMode>Recommended</AnalysisMode>
     <AnalysisModeSecurity>All</AnalysisModeSecurity>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <PropertyGroup>
     <Authors>CVOYA LLC</Authors>
     <Company>CVOYA LLC</Company>
     <Product>Spring Voyage</Product>
-    <Description>Open-source collaboration platform for teams of AI agents — built on .NET and Dapr</Description>
+    <Description>Source-available collaboration platform for teams of AI agents — built on .NET and Dapr</Description>
     <Copyright>Copyright 2025 CVOYA LLC</Copyright>
     <PackageLicenseExpression>LicenseRef-BSL-1.1</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/cvoya-com/spring-voyage</RepositoryUrl>
