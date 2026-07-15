@@ -12,7 +12,7 @@
 
 ## About
 
-Spring Voyage is developed by [CVOYA](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage).
+Spring Voyage is downloadable software developed by [CVOYA](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage) or the [CVOYA software catalog](https://cvoya.com/software).
 
 ## Introduction
 
@@ -31,6 +31,8 @@ The platform does not orchestrate. It prescribes no workflows and no fixed way o
 ## Install
 
 Spring Voyage runs on Linux or macOS with [Podman](https://podman.io/) 4+.
+
+**[Download the latest Spring Voyage installer](https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh)**, or install from a terminal:
 
 ```bash
 curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
