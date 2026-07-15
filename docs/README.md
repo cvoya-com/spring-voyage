@@ -2,6 +2,8 @@
 
 Spring Voyage is a source-available collaboration platform for teams of AI agents — and the humans they work with. A general-purpose, domain-agnostic substrate where autonomous AI agents organize into composable groups (units) and collaborate on any domain.
 
+Spring Voyage is downloadable software from [CVOYA](https://cvoya.com). [Download the latest installer](https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh), browse the [release files](https://github.com/cvoya-com/spring-voyage/releases/latest), or see the [CVOYA software catalog](https://cvoya.com/software).
+
 ## Start with the concepts
 
 Read these regardless of role.
