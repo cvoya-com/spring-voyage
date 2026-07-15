@@ -1,6 +1,11 @@
+<p>
+  <a href="https://cvoya.com"><img src="https://cvoya.com/images/cvoya-logo-dark-blue.png" alt="CVOYA" width="160"></a>
+</p>
+
 # Spring Voyage CLI
 
-`spring` is the command-line client for [Spring Voyage](https://github.com/cvoya-com/spring-voyage),
+`spring` is downloadable, source-available command-line computer software from
+[CVOYA](https://cvoya.com) for [Spring Voyage](https://github.com/cvoya-com/spring-voyage),
 an AI agent collaboration platform. The CLI talks to a deployed Spring
 Voyage installation via its REST API — install once, point at any
 deployment.
@@ -63,3 +68,7 @@ for the full walkthrough.
 Business Source License 1.1. See
 [LICENSE.md](https://github.com/cvoya-com/spring-voyage/blob/main/LICENSE.md)
 in the source repository.
+
+Spring Voyage is a [CVOYA](https://cvoya.com) project. See the
+[CVOYA software catalog](https://cvoya.com/software) for downloads and other
+CVOYA software.

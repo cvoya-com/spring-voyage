@@ -15,8 +15,10 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>spring</ToolCommandName>
     <PackageId>Cvoya.Spring.Cli</PackageId>
+    <Title>Spring Voyage CLI by CVOYA</Title>
     <PackageIcon>spring-voyage-sailboat-light.png</PackageIcon>
-    <Description>Spring Voyage CLI — operator and end-user command-line client for the Spring Voyage AI agent collaboration platform. Talks to a deployed Spring Voyage API (set SPRING_API_URL); supports unit/agent/secret/connector/system commands. See https://github.com/cvoya-com/spring-voyage for the full platform.</Description>
+    <Description>Downloadable, source-available command-line computer software from CVOYA for operating and using the Spring Voyage AI-agent collaboration platform. Connects to a deployed Spring Voyage API and supports unit, agent, secret, connector, and system commands. See https://cvoya.com/software.</Description>
+    <PackageProjectUrl>https://cvoya.com/software</PackageProjectUrl>
     <!-- Directory.Build.props sets PackageLicenseExpression for SPDX-style
          metadata; NuGet refuses both that and PackageLicenseFile on the
          same package, so clear the inherited expression and ship the
