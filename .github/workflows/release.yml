@@ -68,6 +68,9 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   REGISTRY: ghcr.io
+  # Artifact-only jobs intentionally skip checkout. Keep every gh command
+  # independent of local Git metadata when it targets this repository.
+  GH_REPO: ${{ github.repository }}
   CLAUDE_CODE_IMAGE: ghcr.io/cvoya-com/spring-voyage-claude-code-base
   GEMINI_BASE_IMAGE: ghcr.io/cvoya-com/spring-voyage-gemini-base
   CODEX_BASE_IMAGE: ghcr.io/cvoya-com/spring-voyage-codex-base
@@ -1096,8 +1099,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # The cache is an optimization, not a release artifact. Isolate this
+          # large multi-stage build and bound export so a stalled cache cannot
+          # fail an image that Buildx already pushed successfully.
+          cache-from: type=gha,scope=spring-voyage-platform
+          cache-to: type=gha,scope=spring-voyage-platform,mode=max,timeout=5m,ignore-error=true
 
       # Visibility: see the note on publish-agent-base-image — this
       # package inherits visibility from the source repository.
