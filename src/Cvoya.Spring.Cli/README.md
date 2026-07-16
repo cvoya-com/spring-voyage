@@ -1,7 +1,3 @@
-<p>
-  <a href="https://cvoya.com"><img src="https://cvoya.com/images/cvoya-logo-dark-blue.png" alt="CVOYA" width="160"></a>
-</p>
-
 # Spring Voyage CLI
 
 `spring` is downloadable, source-available command-line computer software from
