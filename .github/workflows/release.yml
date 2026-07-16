@@ -1626,6 +1626,7 @@ jobs:
       - name: Attach to draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
         shell: bash
         run: |
@@ -1638,7 +1639,7 @@ jobs:
           for file in "${files[@]}"; do
             [[ -f "$file" ]] || { echo "::error::Missing sidecar binary $file"; exit 1; }
           done
-          gh release upload "$RELEASE_TAG" "${files[@]}"
+          gh release upload "$RELEASE_TAG" "${files[@]}" --repo "$REPO"
 
   # ── 14. Publish SHA256SUMS (#2243) ─────────────────────────────────────────
   #

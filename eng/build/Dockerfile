@@ -13,8 +13,8 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS dotnet-build
 WORKDIR /src
 
-# Copy solution manifests first for better layer caching.
-COPY SpringVoyage.slnx global.json Directory.Build.props Directory.Packages.props ./
+# Copy solution manifests and build configuration first for better layer caching.
+COPY SpringVoyage.slnx global.json Directory.Build.props Directory.Packages.props .editorconfig ./
 COPY .config/ .config/
 COPY src/ src/
 # eng/runtime-catalog/runtime-catalog.yaml is embedded as a resource by
