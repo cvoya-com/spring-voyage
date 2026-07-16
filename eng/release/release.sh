@@ -67,6 +67,18 @@ REPO="cvoya-com/spring-voyage"
 PACKAGES_GLOB="packages/**/*.yaml"
 WORKFLOW_NAME="release.yml"
 
+print_brand_banner() {
+  printf '%s\n' \
+    '+------------------------------------------------------------+' \
+    '| CVOYA                                                      |' \
+    '| https://cvoya.com                                          |' \
+    '| Spring Voyage release                                      |' \
+    '+------------------------------------------------------------+'
+  echo
+}
+
+print_brand_banner
+
 # ── Parse arguments ──────────────────────────────────────────────────────────
 
 PRE_RELEASE=""

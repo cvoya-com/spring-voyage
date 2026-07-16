@@ -12,7 +12,16 @@
 
 ## About
 
-Spring Voyage is downloadable software developed by [CVOYA](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage) or the [CVOYA software catalog](https://cvoya.com/software).
+<p>
+  <a href="https://cvoya.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/cvoya-com/.github/main/profile/cvoya-wordmark-dark.png">
+      <img src="https://raw.githubusercontent.com/cvoya-com/.github/main/profile/cvoya-wordmark.png" alt="CVOYA" width="260">
+    </picture>
+  </a>
+</p>
+
+Spring Voyage is downloadable, source-available computer software developed by [CVOYA](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage) or the [CVOYA software catalog](https://cvoya.com/software).
 
 ## Introduction
 
