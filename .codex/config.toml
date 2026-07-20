@@ -1,0 +1,3 @@
+# Codex project configuration for Spring Voyage.
+# Project instructions live in AGENTS.md and CONVENTIONS.md; hooks live in
+# .codex/hooks.json and call shared scripts from eng/agent-hooks/.

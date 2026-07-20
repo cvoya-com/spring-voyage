@@ -1,6 +1,15 @@
+---
+name: triage
+description: "Triage an issue \u2014 decide whether to close, route to an active-plan area, or park. Codex equivalent of the Claude /triage command."
+---
+
+# triage
+
+Codex equivalent of the Claude `/triage` command. Follow the same project workflow, using any provided user request as the command arguments.
+
 Triage an issue — decide whether to close, route to an active-plan area, or park.
 
-Usage: `/triage <issue-number>`
+Usage: `$triage <issue-number>`
 
 ## Steps
 

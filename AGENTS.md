@@ -22,15 +22,17 @@ Key concepts:
 
 ## Build, test, lint
 
-Use the `/build`, `/test`, and `/lint` skills. Each points at the canonical CI invocation.
+Use the `build`, `test`, and `lint` commands/skills. Each points at the canonical CI invocation.
 
-Pitfall: bare `dotnet test SpringVoyage.slnx` exits 0 without running tests. Always go through `/test`.
+Pitfall: bare `dotnet test SpringVoyage.slnx` exits 0 without running tests. Always go through the `test` command/skill.
+
+Shared generated-file and migration guardrails live in [`docs/agent-rules/generated-files.md`](docs/agent-rules/generated-files.md) and [`docs/agent-rules/database-migrations.md`](docs/agent-rules/database-migrations.md). Claude auto-loads matching `.claude/rules/` shims; Codex reads the shared docs through these project instructions.
 
 ### Pre-push checks
 
-Install the git hook once per clone with `eng/install-hooks.sh`; its pre-push gate runs the fast static checks (`eng/ci/ci-local.sh` — build, format, lint, typecheck for the areas you touched) automatically before every push. CI runs the full `/build`, `/lint`, `/test` on the PR and again in the merge queue, reusing one .NET restore/build for formatting and tests. The resulting `main` push does not repeat ordinary CI, so a regression is caught before merge without a third identical run.
+Install the git hook once per clone with `eng/install-hooks.sh`; its pre-push gate runs the fast static checks (`eng/ci/ci-local.sh` — build, format, lint, typecheck for the areas you touched) automatically before every push. CI runs the full `build`, `lint`, and `test` gates on the PR and again in the merge queue, reusing one .NET restore/build for formatting and tests. The resulting `main` push does not repeat ordinary CI, so a regression is caught before merge without a third identical run.
 
-Two things the fast hook does **not** run, so keep them in mind: `/test` is solution-wide for a reason — integration tests (`tests/integration/Cvoya.Spring.Integration.Tests`) routinely break first when API contracts change, and a scoped `dotnet test path/to/single.csproj` is no substitute. A dispatched sub-agent's claim of "tests pass" means the full solution-wide `/test` (e.g. `eng/ci/ci-local.sh --full`), not a project-scoped subset.
+Two things the fast hook does **not** run, so keep them in mind: `test` is solution-wide for a reason — integration tests (`tests/integration/Cvoya.Spring.Integration.Tests`) routinely break first when API contracts change, and a scoped `dotnet test path/to/single.csproj` is no substitute. A dispatched sub-agent's claim of "tests pass" means the full solution-wide `test` gate (e.g. `eng/ci/ci-local.sh --full`), not a project-scoped subset.
 
 ## Documentation updates
 
@@ -39,6 +41,8 @@ Two things the fast hook does **not** run, so keep them in mind: `/test` is solu
 When shipping a feature, also update the relevant guide doc, and add a `docs/concepts/` entry for any new concept. The "why" behind a design decision belongs in an ADR under [`docs/decisions/`](docs/decisions/README.md).
 
 For changes under `src/Cvoya.Spring.Web/`, keep `src/Cvoya.Spring.Web/DESIGN.md` in sync — it is the portal's visual contract.
+
+The documentation quick reference lives in [`docs/agent-rules/documentation.md`](docs/agent-rules/documentation.md) and applies to both Claude and Codex.
 
 ## Source-available platform and extensibility
 

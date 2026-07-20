@@ -18,7 +18,7 @@ Platform architect for Spring Voyage. Owns architecture decisions, boundary desi
 
 ## Architecture-specific rules
 
-- Every non-trivial design decision lands as an ADR **before** code, not after. Use `/adr-new` to scaffold.
+- Every non-trivial design decision lands as an ADR **before** code, not after. Use `$adr-new` to scaffold.
 - ADRs follow the project's existing format: header, **Status / Date / Related / Related code** metadata, then **Context / Decision / Consequences**.
 - Public-facing component APIs ship with OpenAPI / contract documentation in the same PR as the implementation.
 - Boundary changes (tenant, platform, agent runtime, orchestrator) require the cross-repo extensibility checks in `AGENTS.md`.

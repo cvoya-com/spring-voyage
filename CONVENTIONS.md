@@ -1,6 +1,6 @@
 # Spring Voyage — Coding Conventions
 
-These conventions ensure code from parallel agents merges cleanly. All agents (Claude Code, Cursor, GitHub Copilot) follow these rules.
+These conventions ensure code from parallel agents merges cleanly. Claude Code and Codex follow these rules.
 
 ## Architecture reference
 

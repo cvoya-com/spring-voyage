@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/eng/agent-hooks/guard-generated-files.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'which notify-send >/dev/null 2>&1 && notify-send \"Agent task\" \"Task completed\" || which osascript >/dev/null 2>&1 && osascript -e \"display notification \\\"Task completed\\\" with title \\\"Agent task\\\"\" || true'"
+          }
+        ]
+      }
+    ]
+  }
+}
