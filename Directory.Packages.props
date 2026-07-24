@@ -50,7 +50,7 @@
     <PackageVersion Include="A2A.V0_3" Version="1.0.0-preview2" />
 
     <!-- Reactive Extensions -->
-    <PackageVersion Include="System.Reactive" Version="6.1.0" />
+    <PackageVersion Include="System.Reactive" Version="7.0.0" />
 
     <!-- Testing (Microsoft Testing Platform + xUnit v3) -->
     <PackageVersion Include="xunit.v3.mtp-v2" Version="3.2.2" />
