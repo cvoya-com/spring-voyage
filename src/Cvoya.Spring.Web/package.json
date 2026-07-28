@@ -37,7 +37,7 @@
     "geist": "^1.7.0",
     "js-yaml": "^4.2.0",
     "lucide-react": "^0.468.0",
-    "next": "^16.2.6",
+    "next": "^16.2.11",
     "openapi-fetch": "^0.13.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
