@@ -133,7 +133,7 @@ public sealed class SlackManifestInstallServiceTests
         });
         await _secretStore.Received(6).WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _secretRegistry.Received(6).RegisterAsync(
-            Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.OwnerId == TenantId),
+            Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Tenant && r.OwnerId == TenantId)),
             Arg.Any<string>(),
             SecretOrigin.PlatformOwned,
             Arg.Any<CancellationToken>());

@@ -393,9 +393,10 @@ public class DefaultPackageArtefactActivator_HumansTests
                     Arg.Any<UnitConnectorBindingRequest?>())
                 .Returns(call =>
                 {
-                    var name = call.Arg<UnitManifest>().Name ?? "test";
-                    var display = call.Arg<UnitManifest>().DisplayName ?? name;
-                    var desc = call.Arg<UnitManifest>().Description ?? string.Empty;
+                    var manifest = call.Arg<UnitManifest>()!;
+                    var name = manifest.Name ?? "test";
+                    var display = manifest.DisplayName ?? name;
+                    var desc = manifest.Description ?? string.Empty;
                     return Task.FromResult(new UnitCreationResult(
                         Unit: new UnitResponse(
                             Id: Guid.NewGuid(),

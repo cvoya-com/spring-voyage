@@ -58,7 +58,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
         var ct = TestContext.Current.CancellationToken;
         var ghostId = Guid.NewGuid();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == ghostId), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ghostId)), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PostAsJsonAsync(
@@ -72,7 +72,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == Agent_Idle_Id), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Agent_Idle_Id)), Arg.Any<CancellationToken>())
             .Returns(AgentEntry(Agent_Idle_Id));
 
         // #2999: undeploy is a resumable stop — it tears the container down via
@@ -106,7 +106,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == Agent_A_Id), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Agent_A_Id)), Arg.Any<CancellationToken>())
             .Returns(AgentEntry(Agent_A_Id));
 
         // The execution host rejects replicas > 1; the gateway surfaces that
@@ -129,7 +129,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == Agent_A_Id), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Agent_A_Id)), Arg.Any<CancellationToken>())
             .Returns(AgentEntry(Agent_A_Id));
 
         // No tracked deployment — the worker returns the canonical
@@ -154,7 +154,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == Agent_A_Id), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Agent_A_Id)), Arg.Any<CancellationToken>())
             .Returns(AgentEntry(Agent_A_Id));
 
         // The worker's logs route 404s when no deployment is tracked; the
@@ -176,7 +176,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == Agent_A_Id), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Agent_A_Id)), Arg.Any<CancellationToken>())
             .Returns(AgentEntry(Agent_A_Id));
 
         _factory.ExecutionHostGateway

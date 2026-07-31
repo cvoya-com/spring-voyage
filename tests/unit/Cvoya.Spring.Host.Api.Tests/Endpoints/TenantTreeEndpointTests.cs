@@ -387,7 +387,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(status);
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorId),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorId)),
                 Arg.Any<string>())
             .Returns(proxy);
     }
@@ -399,7 +399,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns<Task<LifecycleStatus>>(_ => throw new InvalidOperationException("actor unreachable"));
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorId),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorId)),
                 Arg.Any<string>())
             .Returns(proxy);
     }
@@ -417,7 +417,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(tcs.Task);
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorId),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorId)),
                 Arg.Any<string>())
             .Returns(proxy);
     }

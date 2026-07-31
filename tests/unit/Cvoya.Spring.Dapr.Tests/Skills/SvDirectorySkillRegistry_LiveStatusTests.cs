@@ -452,7 +452,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
                 }
                 actorProxyFactory
                     .CreateActorProxy<IAgentActor>(
-                        Arg.Is<ActorId>(a => a.GetId() == actorId.GetId()),
+                        Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorId.GetId())),
                         Arg.Any<string>())
                     .Returns(proxy);
             }
@@ -472,7 +472,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
                 }
                 actorProxyFactory
                     .CreateActorProxy<IUnitActor>(
-                        Arg.Is<ActorId>(a => a.GetId() == actorId.GetId()),
+                        Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorId.GetId())),
                         Arg.Any<string>())
                     .Returns(proxy);
             }

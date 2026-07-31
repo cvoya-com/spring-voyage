@@ -71,7 +71,7 @@ public class ComposedSecretResolverTests
 
         // Tenant scope must not be consulted on a direct hit.
         await registry.DidNotReceive().LookupWithVersionAsync(
-            Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant), Arg.Any<CancellationToken>());
+            Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Tenant)), Arg.Any<CancellationToken>());
         await policy.DidNotReceive().IsAuthorizedAsync(
             Arg.Any<SecretAccessAction>(), SecretScope.Tenant, Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
     }
@@ -293,7 +293,7 @@ public class ComposedSecretResolverTests
 
         resolution.Path.ShouldBe(SecretResolvePath.NotFound);
         await registry.DidNotReceive().LookupWithVersionAsync(
-            Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant), Arg.Any<CancellationToken>());
+            Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Tenant)), Arg.Any<CancellationToken>());
     }
 
     [Fact]

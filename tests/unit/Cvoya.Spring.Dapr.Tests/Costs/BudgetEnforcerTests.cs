@@ -185,7 +185,7 @@ public class BudgetEnforcerTests : IDisposable
         await Task.Delay(500, ct);
 
         await _eventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning)),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);
@@ -205,7 +205,7 @@ public class BudgetEnforcerTests : IDisposable
         await Task.Delay(500, ct);
 
         await _eventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.Severity == ActivitySeverity.Error),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.Severity == ActivitySeverity.Error)),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);
@@ -247,7 +247,7 @@ public class BudgetEnforcerTests : IDisposable
         await Task.Delay(500, ct);
 
         await _eventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning)),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);
@@ -296,14 +296,14 @@ public class BudgetEnforcerTests : IDisposable
         await Task.Delay(500, ct);
 
         await _eventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.Severity == ActivitySeverity.Error &&
-                e.Source.Scheme == "unit"),
+                e.Source.Scheme == "unit")),
             Arg.Any<CancellationToken>());
 
         await _stateStore.Received(1).SetAsync(
             $"{unitId:N}:{StateKeys.InitiativeState}",
-            Arg.Is<Cvoya.Spring.Dapr.Costs.InitiativePausedState>(s => s.Reason == "BudgetExceeded"),
+            Arg.Is(ArgMatchers.Matching<Cvoya.Spring.Dapr.Costs.InitiativePausedState>(s => s.Reason == "BudgetExceeded")),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);
@@ -324,7 +324,7 @@ public class BudgetEnforcerTests : IDisposable
 
         await _stateStore.Received(1).SetAsync(
             $"{AgentAHex}:{StateKeys.InitiativeState}",
-            Arg.Is<Cvoya.Spring.Dapr.Costs.InitiativePausedState>(s => s.Reason == "BudgetExceeded"),
+            Arg.Is(ArgMatchers.Matching<Cvoya.Spring.Dapr.Costs.InitiativePausedState>(s => s.Reason == "BudgetExceeded")),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);
@@ -344,9 +344,9 @@ public class BudgetEnforcerTests : IDisposable
         await Task.Delay(500, ct);
 
         await _eventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.Severity == ActivitySeverity.Warning &&
-                e.Source.Scheme == "tenant"),
+                e.Source.Scheme == "tenant")),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);
@@ -366,9 +366,9 @@ public class BudgetEnforcerTests : IDisposable
         await Task.Delay(500, ct);
 
         await _eventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.Severity == ActivitySeverity.Error &&
-                e.Source.Scheme == "tenant"),
+                e.Source.Scheme == "tenant")),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);
@@ -387,7 +387,7 @@ public class BudgetEnforcerTests : IDisposable
         await Task.Delay(500, ct);
 
         await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.Source.Scheme == "tenant"),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.Source.Scheme == "tenant")),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);

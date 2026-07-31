@@ -42,7 +42,7 @@ public class AmendmentFlowTests
     {
         var ds = Substitute.For<IDirectoryService>();
         ds.ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitEngineeringUuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitEngineeringUuid)),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address("unit", UnitEngineeringUuid),
@@ -101,10 +101,10 @@ public class AmendmentFlowTests
         // fold it into the prompt assembly.
         await harness.StateManager.Received().SetStateAsync(
             StateKeys.AgentPendingAmendments,
-            Arg.Is<List<PendingAmendment>>(list =>
+            Arg.Is(ArgMatchers.Matching<List<PendingAmendment>>(list =>
                 list.Count == 1 &&
                 list[0].Text == "Add a commit message before pushing." &&
-                list[0].Priority == AmendmentPriority.MustRead),
+                list[0].Priority == AmendmentPriority.MustRead)),
             Arg.Any<CancellationToken>());
     }
 

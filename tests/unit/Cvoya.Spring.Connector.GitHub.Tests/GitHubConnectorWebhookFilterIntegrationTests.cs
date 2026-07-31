@@ -75,8 +75,8 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         result.Messages.ShouldBeEmpty();
 
         await bus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ConnectorEventFiltered),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ConnectorEventFiltered)),
             Arg.Any<CancellationToken>());
     }
 
@@ -208,9 +208,9 @@ public class GitHubConnectorWebhookFilterIntegrationTests
 
         result.Outcome.ShouldBe(WebhookOutcome.Ignored);
         await bus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ConnectorEventFiltered
-                && e.Details!.Value.GetProperty("filter_kind").GetString() == "include_path"),
+                && e.Details!.Value.GetProperty("filter_kind").GetString() == "include_path")),
             Arg.Any<CancellationToken>());
     }
 

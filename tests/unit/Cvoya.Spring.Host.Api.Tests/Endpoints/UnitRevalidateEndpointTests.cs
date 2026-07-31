@@ -130,13 +130,13 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
 
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == ActorId),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == ActorId)),
                 Arg.Any<string>())
             .Returns(proxy);
     }

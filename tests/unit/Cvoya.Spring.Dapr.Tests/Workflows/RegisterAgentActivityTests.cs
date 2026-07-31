@@ -50,12 +50,12 @@ public class RegisterAgentActivityTests
 
         result.ShouldBeTrue();
         await _directoryService.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
                 e.Address.Scheme == "agent" &&
                 e.Address.Id == AgentGuid &&
                 e.ActorId == AgentGuid &&
                 e.DisplayName == "Ada" &&
-                e.Role == "backend-engineer"),
+                e.Role == "backend-engineer")),
             Arg.Any<CancellationToken>());
     }
 
@@ -69,8 +69,8 @@ public class RegisterAgentActivityTests
         await _activity.RunAsync(context, input);
 
         await _directoryService.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
-                e.DisplayName == AgentIdHex),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
+                e.DisplayName == AgentIdHex)),
             Arg.Any<CancellationToken>());
     }
 }

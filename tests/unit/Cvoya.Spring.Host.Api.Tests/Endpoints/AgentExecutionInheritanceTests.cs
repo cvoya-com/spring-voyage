@@ -177,7 +177,7 @@ public class AgentExecutionInheritanceTests : IClassFixture<CustomWebApplication
     {
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentGuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentGuid)),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address(Address.AgentScheme, agentGuid),

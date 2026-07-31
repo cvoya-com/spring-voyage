@@ -59,7 +59,7 @@ public class InteractionsQueryServiceTests : IDisposable
         // label without spinning up the real EF-backed implementation.
         _resolver
             .ResolveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ci => new ValueTask<string>(ci.Arg<string>()));
+            .Returns(ci => new ValueTask<string>(ci.Arg<string>()!));
 
         // Default empty membership stubs. Tests that exercise the unit
         // scope override these via Returns() in the test body.
@@ -612,10 +612,10 @@ public class InteractionsQueryServiceTests : IDisposable
 
         // Override the default mirror-back resolver with named labels.
         _resolver
-            .ResolveAsync(Arg.Is<string>(s => s.Contains(GuidFormatter.Format(ada))), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<string>(s => s.Contains(GuidFormatter.Format(ada)))), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<string>("Ada"));
         _resolver
-            .ResolveAsync(Arg.Is<string>(s => s.Contains(GuidFormatter.Format(grace))), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<string>(s => s.Contains(GuidFormatter.Format(grace)))), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<string>("Grace"));
 
         await SeedMessageAsync((Address.AgentScheme, ada), (Address.AgentScheme, grace), Base.AddMinutes(1));

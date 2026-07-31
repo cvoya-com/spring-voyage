@@ -56,7 +56,7 @@ public class DestroyCloneActivityTests
         await _activity.RunAsync(_context, input);
 
         await _directoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == Clone1Hex),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Path == Clone1Hex)),
             Arg.Any<CancellationToken>());
     }
 
@@ -76,7 +76,7 @@ public class DestroyCloneActivityTests
         // state store, so the destroy activity must NOT delete an
         // "{cloneId}:Agent:Definition" key. Guard the regression.
         await _stateStore.DidNotReceive().DeleteAsync(
-            Arg.Is<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal)),
+            Arg.Is(ArgMatchers.Matching<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal))),
             Arg.Any<CancellationToken>());
     }
 
@@ -96,7 +96,7 @@ public class DestroyCloneActivityTests
 
         await _stateStore.Received(1).SetAsync(
             $"{ParentAgentHex}:{StateKeys.CloneChildren}",
-            Arg.Is<List<string>>(list => !list.Contains(Clone1Hex) && list.Contains(Clone2Hex)),
+            Arg.Is(ArgMatchers.Matching<List<string>>(list => !list.Contains(Clone1Hex) && list.Contains(Clone2Hex))),
             Arg.Any<CancellationToken>());
     }
 

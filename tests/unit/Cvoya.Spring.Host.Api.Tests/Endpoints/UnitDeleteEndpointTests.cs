@@ -61,7 +61,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
             Arg.Any<CancellationToken>());
 
         // #2999: a resumable /stop preserved the members' + router's workspace
@@ -74,12 +74,12 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         // #2528: clean-path delete emits a StateChanged event so the
         // portal's SSE-driven tree refresh fires without a manual reload.
         await _factory.ActivityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
                 e.Severity == ActivitySeverity.Info &&
                 e.Summary.Contains("deleted") &&
                 e.Source.Scheme == "unit" &&
-                e.Source.Path == UnitName),
+                e.Source.Path == UnitName)),
             Arg.Any<CancellationToken>());
     }
 
@@ -94,15 +94,15 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
             Arg.Any<CancellationToken>());
 
         // #2528: clean-path delete emits a StateChanged event for the tree refresh.
         await _factory.ActivityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
                 e.Source.Scheme == "unit" &&
-                e.Source.Path == UnitName),
+                e.Source.Path == UnitName)),
             Arg.Any<CancellationToken>());
     }
 
@@ -139,14 +139,14 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         await _factory.ExecutionHostGateway.Received(1)
             .StopUnitContainerAsync(ActorId, Arg.Any<CancellationToken>());
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
             Arg.Any<CancellationToken>());
         await _factory.ActivityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
                 e.Severity == ActivitySeverity.Info &&
                 e.Summary.Contains("Force-deleted") &&
-                e.Source.Path == UnitName),
+                e.Source.Path == UnitName)),
             Arg.Any<CancellationToken>());
     }
 
@@ -175,14 +175,14 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         // Directory entry removal still happens even if the container step failed —
         // that's the whole point of force-delete.
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
             Arg.Any<CancellationToken>());
 
         // Event surfaces the failure as Warning.
         await _factory.ActivityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Severity == ActivitySeverity.Warning),
+                e.Severity == ActivitySeverity.Warning)),
             Arg.Any<CancellationToken>());
     }
 
@@ -215,10 +215,10 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         // warning emission still has its own test path
         // (DeleteUnit_Force_ContainerStopFails_…).
         await _factory.ActivityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
                 e.Severity == ActivitySeverity.Info &&
-                e.Summary.Contains("deleted")),
+                e.Summary.Contains("deleted"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -269,7 +269,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ShouldContain("persistent-agent-router");
 
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -316,7 +316,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         await membershipRepo.Received(1)
             .ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>());
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -362,7 +362,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ShouldContain("persistent-agent-members");
 
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -414,14 +414,14 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
             DateTimeOffset.UtcNow);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)), Arg.Any<CancellationToken>())
             .Returns(entry);
 
         var proxy = Substitute.For<IUnitActor>();
         proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(status);
 
         _factory.ActorProxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId), Arg.Any<string>())
+            .CreateActorProxy<IUnitActor>(Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId)), Arg.Any<string>())
             .Returns(proxy);
     }
 }

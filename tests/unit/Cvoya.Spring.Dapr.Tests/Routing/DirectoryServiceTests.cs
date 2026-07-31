@@ -966,7 +966,7 @@ public class DirectoryServiceTests : IDisposable
         proxy.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
         var actorIdString = GuidFormatter.Format(actorId);
         factory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorIdString),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorIdString)),
                 Arg.Any<string>())
             .Returns(proxy);
     }

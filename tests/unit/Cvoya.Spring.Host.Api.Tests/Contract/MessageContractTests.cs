@@ -53,7 +53,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractSendTarget_Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractSendTarget_Id)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -77,7 +77,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(reply);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 ActorContractSend_Id.ToString("N"))
             .Returns(agent);
 
@@ -134,7 +134,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractNullPayloadTarget_Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractNullPayloadTarget_Id)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -146,7 +146,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 ActorContractNullPayload_Id.ToString("N"))
             .Returns(agent);
 

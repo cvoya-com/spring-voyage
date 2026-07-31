@@ -74,7 +74,7 @@ public class LabelRoutingRoundtripSubscriberTests
             .RemoveFromIssue("acme", "widgets", 42, "agent:backend");
         await _client.Issue.Labels.Received(1)
             .AddToIssue("acme", "widgets", 42,
-                Arg.Is<string[]>(l => l.Length == 1 && l[0] == "in-progress"));
+                Arg.Is(ArgMatchers.Matching<string[]>(l => l.Length == 1 && l[0] == "in-progress")));
 
         await _subscriber.StopAsync(TestContext.Current.CancellationToken);
     }
@@ -99,10 +99,10 @@ public class LabelRoutingRoundtripSubscriberTests
 
         await _connector.Received(1)
             .CreateAuthenticatedClientForBindingAsync(
-                Arg.Is<UnitGitHubConfig>(c =>
+                Arg.Is(ArgMatchers.Matching<UnitGitHubConfig>(c =>
                     c.AppInstallationId == 4242
                     && c.PatSecretName == null
-                    && c.Repo == "acme/widgets"),
+                    && c.Repo == "acme/widgets")),
                 Arg.Any<CancellationToken>());
     }
 
@@ -125,9 +125,9 @@ public class LabelRoutingRoundtripSubscriberTests
 
         await _connector.Received(1)
             .CreateAuthenticatedClientForBindingAsync(
-                Arg.Is<UnitGitHubConfig>(c =>
+                Arg.Is(ArgMatchers.Matching<UnitGitHubConfig>(c =>
                     c.AppInstallationId == null
-                    && c.PatSecretName == "binding/test/github/pat"),
+                    && c.PatSecretName == "binding/test/github/pat")),
                 Arg.Any<CancellationToken>());
     }
 
@@ -186,7 +186,7 @@ public class LabelRoutingRoundtripSubscriberTests
             .RemoveFromIssue("acme", "widgets", 42, "stale");
         await _client.Issue.Labels.Received(1)
             .AddToIssue("acme", "widgets", 42,
-                Arg.Is<string[]>(l => l.Length == 1 && l[0] == "in-progress"));
+                Arg.Is(ArgMatchers.Matching<string[]>(l => l.Length == 1 && l[0] == "in-progress")));
     }
 
     [Fact]

@@ -271,14 +271,14 @@ public class SlackOutboundDeliveryWireUpIntegrationTests
                 .Returns(args => new SlackPostMessageResult(
                     Ok: true,
                     Error: null,
-                    ChannelId: (string)args[1],
+                    ChannelId: args.ArgAt<string>(1)!,
                     MessageTs: "1700000000.123456"));
             services.AddSingleton(webApi);
 
             // Secret resolver — bot token comes back from the resolver.
             var secretResolver = Substitute.For<ISecretResolver>();
             secretResolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Name == "slack/T-acme/bot-token"),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Name == "slack/T-acme/bot-token")),
                 Arg.Any<CancellationToken>())
                 .Returns(new SecretResolution(
                     Value: BotToken,
@@ -286,7 +286,7 @@ public class SlackOutboundDeliveryWireUpIntegrationTests
                     EffectiveRef: new SecretRef(SecretScope.Tenant, TestTenantId, "slack/T-acme/bot-token"),
                     Version: 1));
             secretResolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Name == "slack/T-acme/signing-secret"),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Name == "slack/T-acme/signing-secret")),
                 Arg.Any<CancellationToken>())
                 .Returns(new SecretResolution(
                     Value: SigningSecret,
@@ -333,12 +333,12 @@ public class SlackOutboundDeliveryWireUpIntegrationTests
             var humanResolver = Substitute.For<ITenantUserHumanResolver>();
             humanResolver.PickFromAsync(
                 Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-                .Returns(call => new Address(Address.HumanScheme, (Guid)call[0]));
+                .Returns(call => new Address(Address.HumanScheme, call.ArgAt<Guid>(0)));
             services.AddScoped(_ => humanResolver);
 
             var humanLookup = Substitute.For<IHumanTenantUserLookup>();
             humanLookup.GetTenantUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-                .Returns(call => Task.FromResult<Guid?>((Guid)call[0]));
+                .Returns(call => Task.FromResult<Guid?>(call.ArgAt<Guid>(0)));
             services.AddScoped(_ => humanLookup);
 
             // Display-name resolver used by the slug builder. The slug

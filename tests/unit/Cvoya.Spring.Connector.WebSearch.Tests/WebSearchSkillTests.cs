@@ -38,10 +38,10 @@ public class WebSearchSkillTests
 
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r =>
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r =>
                     r.Scope == SecretScope.Unit
                     && r.OwnerId == unitId
-                    && r.Name == "brave-api-key"),
+                    && r.Name == "brave-api-key")),
                 Arg.Any<CancellationToken>())
             .Returns(new SecretResolution(
                 "super-secret",

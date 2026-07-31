@@ -179,7 +179,7 @@ public class FileSystemSkillBundleSeedProviderTests : IDisposable
             .BindAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult(new TenantSkillBundleBinding(
                 TenantId: OssTenantIds.Default,
-                BundleId: ci.Arg<string>(),
+                BundleId: ci.Arg<string>()!,
                 Enabled: ci.Arg<bool>(),
                 BoundAt: DateTimeOffset.UtcNow)));
 

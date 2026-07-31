@@ -1,0 +1,8 @@
+# Next.js 16.2.12 pins PostCSS 8.4.31 for trusted build-time CSS.
+# Remove with #3241 when a patched stable Next.js release is available.
+CVE-2026-45623 exp:2026-08-31
+GHSA-r28c-9q8g-f849 exp:2026-08-31
+
+# Forcing Sharp 0.35 breaks Linux tracing on Next.js 16.2. The portal processes
+# only repository-owned images. Remove with #3241 after the upstream backport.
+GHSA-f88m-g3jw-g9cj exp:2026-08-31

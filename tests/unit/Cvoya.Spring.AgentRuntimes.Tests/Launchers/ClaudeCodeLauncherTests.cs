@@ -404,7 +404,7 @@ public class ClaudeCodeLauncherTests
             "anthropic",
             Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
             Arg.Any<Guid?>(),
-            Arg.Is<Guid?>(unit => unit == unitGuid),
+            Arg.Is(ArgMatchers.Matching<Guid?>(unit => unit == unitGuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -422,7 +422,7 @@ public class ClaudeCodeLauncherTests
             "anthropic",
             Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
             Arg.Any<Guid?>(),
-            Arg.Is<Guid?>(unit => unit == null),
+            Arg.Is(ArgMatchers.Matching<Guid?>(unit => unit == null)),
             Arg.Any<CancellationToken>());
     }
 

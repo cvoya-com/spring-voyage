@@ -74,7 +74,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         // Directory must never see an orphaned registration.
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "unit"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.Address.Scheme == "unit")),
             Arg.Any<CancellationToken>());
     }
 
@@ -98,7 +98,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "unit"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.Address.Scheme == "unit")),
             Arg.Any<CancellationToken>());
     }
 
@@ -164,7 +164,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         // address Path is a Guid hex post-#1629; it suffices to assert
         // that AddMemberAsync was not invoked at all on a unit-scheme arg.
         await proxy.DidNotReceive().AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit"),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit")),
             Arg.Any<CancellationToken>());
     }
 
@@ -180,12 +180,12 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             parentAddress, ActorParent_Id, Unit_EngTeam_Id.ToString("N"), "parent", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == Unit_EngTeam_Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == Unit_EngTeam_Id)),
                 Arg.Any<CancellationToken>())
             .Returns(parentEntry);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "child-unit"),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == "child-unit")),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
         _factory.DirectoryService
@@ -195,7 +195,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         var parentProxy = Substitute.For<IUnitActor>();
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == ActorParent_Id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == ActorParent_Id.ToString("N"))),
                 Arg.Any<string>())
             .Returns(parentProxy);
         var childProxy = Substitute.For<IUnitActor>();
@@ -203,7 +203,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         var actorParentIdStr = ActorParent_Id.ToString("N");
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() != actorParentIdStr),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() != actorParentIdStr)),
                 Arg.Any<string>())
             .Returns(childProxy);
 
@@ -219,7 +219,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         // Post-#1629 the new child unit's address Path is its server-minted
         // Guid hex, not the request slug — assert on scheme only.
         await parentProxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit"),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit")),
             Arg.Any<CancellationToken>());
     }
 
@@ -244,7 +244,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "unit"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.Address.Scheme == "unit")),
             Arg.Any<CancellationToken>());
     }
 
@@ -260,7 +260,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             parentAddress, ActorParentA_Id, Unit_ParentA_Id.ToString("N"), "parent", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == Unit_ParentA_Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == Unit_ParentA_Id)),
                 Arg.Any<CancellationToken>())
             .Returns(parentEntry);
 
@@ -277,7 +277,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             childAddress, childUnitId, "child-unit", "child", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == childUnitId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == childUnitId)),
                 Arg.Any<CancellationToken>())
             .Returns(childEntry);
         // #2084: RemoveMember resolves the member's kind by id (scheme-free).
@@ -289,8 +289,8 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
         // non-top-level unit" situation.
         _factory.ParentInvariantGuard
             .EnsureParentRemainsAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == Unit_ParentA_Id),
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == childUnitId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == Unit_ParentA_Id)),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == childUnitId)),
                 Arg.Any<CancellationToken>())
             .Returns(_ => throw new UnitParentRequiredException(
                 "child-unit",

@@ -60,8 +60,8 @@ public class SlackOutboundDeliveryObserverTests
         await observer.OnDeliveredAsync(Caller, Target, message, participants, ct);
 
         await dispatcher.Received(1).DispatchAsync(
-            Arg.Is<Message>(m => m.Id == message.Id),
-            Arg.Is<IReadOnlyList<Address>>(p => p.Count == 2),
+            Arg.Is(ArgMatchers.Matching<Message>(m => m.Id == message.Id)),
+            Arg.Is(ArgMatchers.Matching<IReadOnlyList<Address>>(p => p.Count == 2)),
             Arg.Any<CancellationToken>());
     }
 
@@ -140,7 +140,7 @@ public class SlackOutboundDeliveryObserverTests
 
         await dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
-            Arg.Is<IReadOnlyList<Address>>(p => p.Count == 3 && p.Contains(thirdParty)),
+            Arg.Is(ArgMatchers.Matching<IReadOnlyList<Address>>(p => p.Count == 3 && p.Contains(thirdParty))),
             Arg.Any<CancellationToken>());
     }
 }

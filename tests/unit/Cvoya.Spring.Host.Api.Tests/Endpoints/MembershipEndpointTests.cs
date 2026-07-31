@@ -375,7 +375,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns(new AgentMetadata(Model: "claude-opus"));
         _factory.ActorProxyFactory
             .CreateActorProxy<Cvoya.Spring.Dapr.Actors.IAgentActor>(
-                Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentAdaUuid.ToString()),
+                Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentAdaUuid.ToString())),
                 Arg.Any<string>())
             .Returns(agentProxy);
 
@@ -410,7 +410,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns(new AgentMetadata());
         _factory.ActorProxyFactory
             .CreateActorProxy<Cvoya.Spring.Dapr.Actors.IAgentActor>(
-                Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentAdaUuid.ToString()),
+                Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentAdaUuid.ToString())),
                 Arg.Any<string>())
             .Returns(agentProxy);
 
@@ -610,7 +610,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == scheme && a.Id == actorUuid),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == scheme && a.Id == actorUuid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 

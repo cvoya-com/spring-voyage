@@ -127,7 +127,7 @@ public class UnitContractTests : IClassFixture<CustomWebApplicationFactory>
         ResetDirectory();
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "contract-ghost-unit"),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == "contract-ghost-unit")),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
@@ -147,7 +147,7 @@ public class UnitContractTests : IClassFixture<CustomWebApplicationFactory>
         var ghostId = Guid.NewGuid();
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ghostId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ghostId)),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 

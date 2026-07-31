@@ -70,7 +70,7 @@ public class SvMemorySkillRegistryTests
                 Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult(new MemoryEntry(
                 Guid.NewGuid(),
-                call.Arg<Address>(),
+                call.Arg<Address>()!,
                 call.ArgAt<JsonElement>(1),
                 call.ArgAt<string?>(2),
                 call.ArgAt<Guid?>(3),
@@ -138,8 +138,8 @@ public class SvMemorySkillRegistryTests
 
         // No participants → agent-wide → no conversation binding.
         await _memoryStore.Received(1).AddAsync(
-            Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == callerId),
-            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.Object),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.AgentScheme && a.Id == callerId)),
+            Arg.Is(ArgMatchers.Matching<JsonElement>(c => c.ValueKind == JsonValueKind.Object)),
             null,
             null,
             Arg.Any<CancellationToken>());
@@ -163,8 +163,8 @@ public class SvMemorySkillRegistryTests
         // The store receives the content as a JSON object, not a string.
         await _memoryStore.Received(1).AddAsync(
             Arg.Any<Address>(),
-            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.Object
-                && c.GetProperty("status").GetString() == "published"),
+            Arg.Is(ArgMatchers.Matching<JsonElement>(c => c.ValueKind == JsonValueKind.Object
+                && c.GetProperty("status").GetString() == "published")),
             null,
             null,
             Arg.Any<CancellationToken>());
@@ -192,7 +192,7 @@ public class SvMemorySkillRegistryTests
         // The store receives the content as a JSON string, not coerced to an object.
         await _memoryStore.Received(1).AddAsync(
             Arg.Any<Address>(),
-            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "plain text"),
+            Arg.Is(ArgMatchers.Matching<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "plain text")),
             null,
             null,
             Arg.Any<CancellationToken>());
@@ -221,7 +221,7 @@ public class SvMemorySkillRegistryTests
         // The store receives a structured object, not the raw JSON string.
         await _memoryStore.Received(1).AddAsync(
             Arg.Any<Address>(),
-            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.Object && c.GetProperty("k").GetInt32() == 1),
+            Arg.Is(ArgMatchers.Matching<JsonElement>(c => c.ValueKind == JsonValueKind.Object && c.GetProperty("k").GetInt32() == 1)),
             null,
             null,
             Arg.Any<CancellationToken>());
@@ -244,7 +244,7 @@ public class SvMemorySkillRegistryTests
 
         await _memoryStore.Received(1).AddAsync(
             Arg.Any<Address>(),
-            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "42"),
+            Arg.Is(ArgMatchers.Matching<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "42")),
             null,
             null,
             Arg.Any<CancellationToken>());
@@ -287,13 +287,13 @@ public class SvMemorySkillRegistryTests
         // The participant set is {caller} ∪ {supplied} — the caller is
         // auto-included so the binding matches sv.memory.history_with.
         await _threadRegistry.Received(1).GetOrCreateAsync(
-            Arg.Is<IEnumerable<Address>>(set =>
-                set.Any(a => a.Id == callerId) && set.Any(a => a.Id == otherId)),
+            Arg.Is(ArgMatchers.Matching<IEnumerable<Address>>(set =>
+                set.Any(a => a.Id == callerId) && set.Any(a => a.Id == otherId))),
             Arg.Any<CancellationToken>());
 
         // The resolved conversation id is the store binding.
         await _memoryStore.Received(1).AddAsync(
-            Arg.Is<Address>(a => a.Id == callerId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)),
             Arg.Any<JsonElement>(),
             null,
             conversationId,
@@ -334,7 +334,7 @@ public class SvMemorySkillRegistryTests
 
         // Agent-wide bucket: scope=Agent (thread_id IS NULL), no binding.
         await _memoryStore.Received(1).ListAsync(
-            Arg.Is<Address>(a => a.Id == callerId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)),
             MemoryScope.Agent,
             null,
             20,
@@ -361,7 +361,7 @@ public class SvMemorySkillRegistryTests
         // Conversation bucket: scope=Thread + the resolved binding narrows
         // the store predicate to exactly that conversation's entries.
         await _memoryStore.Received(1).ListAsync(
-            Arg.Is<Address>(a => a.Id == callerId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)),
             MemoryScope.Thread,
             conversationId,
             Arg.Any<int>(),
@@ -383,7 +383,7 @@ public class SvMemorySkillRegistryTests
         await registry.InvokeAsync(SvMemorySkillRegistry.MemorySearchTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).SearchAsync(
-            Arg.Is<Address>(a => a.Id == callerId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)),
             "react hooks",
             MemoryScope.Agent,
             null,
@@ -408,7 +408,7 @@ public class SvMemorySkillRegistryTests
         await registry.InvokeAsync(SvMemorySkillRegistry.MemorySearchTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).SearchAsync(
-            Arg.Is<Address>(a => a.Id == callerId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)),
             "bob",
             MemoryScope.Thread,
             conversationId,
@@ -428,7 +428,7 @@ public class SvMemorySkillRegistryTests
         _memoryStore.UpdateAsync(Arg.Any<Address>(), Arg.Any<Guid>(),
                 Arg.Any<JsonElement?>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult<MemoryEntry?>(new MemoryEntry(
-                id, call.Arg<Address>(),
+                id, call.Arg<Address>()!,
                 call.ArgAt<JsonElement?>(2)!.Value, null, null,
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
 
@@ -436,9 +436,9 @@ public class SvMemorySkillRegistryTests
             SvMemorySkillRegistry.MemoryUpdateTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).UpdateAsync(
-            Arg.Is<Address>(a => a.Id == callerId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)),
             id,
-            Arg.Is<JsonElement?>(c => c.HasValue && c.Value.ValueKind == JsonValueKind.Object),
+            Arg.Is(ArgMatchers.Matching<JsonElement?>(c => c.HasValue && c.Value.ValueKind == JsonValueKind.Object)),
             Arg.Any<CancellationToken>());
         result.GetProperty("content").ValueKind.ShouldBe(JsonValueKind.Object);
     }
@@ -457,7 +457,7 @@ public class SvMemorySkillRegistryTests
         _memoryStore.UpdateAsync(Arg.Any<Address>(), Arg.Any<Guid>(),
                 Arg.Any<JsonElement?>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult<MemoryEntry?>(new MemoryEntry(
-                id, call.Arg<Address>(),
+                id, call.Arg<Address>()!,
                 call.ArgAt<JsonElement?>(2)!.Value, null, null,
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
 
@@ -465,9 +465,9 @@ public class SvMemorySkillRegistryTests
             SvMemorySkillRegistry.MemoryUpdateTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).UpdateAsync(
-            Arg.Is<Address>(a => a.Id == callerId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)),
             id,
-            Arg.Is<JsonElement?>(c => c.HasValue && c.Value.ValueKind == JsonValueKind.String),
+            Arg.Is(ArgMatchers.Matching<JsonElement?>(c => c.HasValue && c.Value.ValueKind == JsonValueKind.String)),
             Arg.Any<CancellationToken>());
         result.GetProperty("content").GetString().ShouldBe("archived");
     }
@@ -487,7 +487,7 @@ public class SvMemorySkillRegistryTests
         result.GetProperty("deleted").GetBoolean().ShouldBeTrue();
 
         await _memoryStore.Received(1).DeleteAsync(
-            Arg.Is<Address>(a => a.Id == callerId), id, Arg.Any<CancellationToken>());
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == callerId)), id, Arg.Any<CancellationToken>());
     }
 
     [Fact]

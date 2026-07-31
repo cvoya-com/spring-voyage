@@ -107,7 +107,7 @@ public class RuntimeInvocationPathTests
             context: Arg.Any<PromptAssemblyContext>(),
             emitActivity: Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
             onDispatchExit: Arg.Any<Func<string, Task>>(),
-            cancellationToken: Arg.Is<CancellationToken>(ct => !ct.CanBeCanceled));
+            cancellationToken: Arg.Is(ArgMatchers.Matching<CancellationToken>(ct => !ct.CanBeCanceled)));
     }
 
     [Fact]

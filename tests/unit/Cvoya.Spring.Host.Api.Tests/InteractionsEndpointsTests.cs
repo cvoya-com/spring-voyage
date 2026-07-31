@@ -62,13 +62,13 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f =>
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f =>
                 f.Cap == 50 &&
                 f.Neighbours == 2 &&
                 f.Bucket == InteractionsBucket.Second15 &&
                 f.Unit == null &&
                 f.Participant == null &&
-                Math.Abs((f.Until - f.Since).TotalMinutes - 10) < 1.0),
+                Math.Abs((f.Until - f.Since).TotalMinutes - 10) < 1.0)),
             Arg.Any<CancellationToken>());
     }
 
@@ -85,7 +85,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Cap == null),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f => f.Cap == null)),
             Arg.Any<CancellationToken>());
     }
 
@@ -102,7 +102,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Cap == 10),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f => f.Cap == 10)),
             Arg.Any<CancellationToken>());
     }
 
@@ -122,7 +122,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Neighbours == 2),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f => f.Neighbours == 2)),
             Arg.Any<CancellationToken>());
     }
 
@@ -139,7 +139,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Bucket == InteractionsBucket.Day),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f => f.Bucket == InteractionsBucket.Day)),
             Arg.Any<CancellationToken>());
     }
 
@@ -158,7 +158,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Unit == unitId),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f => f.Unit == unitId)),
             Arg.Any<CancellationToken>());
     }
 
@@ -178,7 +178,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Unit == unitId),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f => f.Unit == unitId)),
             Arg.Any<CancellationToken>());
     }
 
@@ -199,8 +199,8 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f =>
-                f.Since == since && f.Until == until),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f =>
+                f.Since == since && f.Until == until)),
             Arg.Any<CancellationToken>());
     }
 
@@ -304,7 +304,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Bucket == InteractionsBucket.Second15),
+            Arg.Is(ArgMatchers.Matching<InteractionsQueryFilters>(f => f.Bucket == InteractionsBucket.Second15)),
             Arg.Any<CancellationToken>());
     }
 
@@ -335,13 +335,13 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
-            Arg.Is<InteractionsHistoryFilters>(f =>
+            Arg.Is(ArgMatchers.Matching<InteractionsHistoryFilters>(f =>
                 f.Cap == 50 &&
                 f.Neighbours == 2 &&
                 f.MaxPulses == 5000 &&
                 f.Unit == null &&
                 f.Participant == null &&
-                Math.Abs((f.Until - f.Since).TotalMinutes - 10) < 1.0),
+                Math.Abs((f.Until - f.Since).TotalMinutes - 10) < 1.0)),
             Arg.Any<CancellationToken>());
     }
 
@@ -359,7 +359,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
-            Arg.Is<InteractionsHistoryFilters>(f => f.MaxPulses == 5),
+            Arg.Is(ArgMatchers.Matching<InteractionsHistoryFilters>(f => f.MaxPulses == 5)),
             Arg.Any<CancellationToken>());
     }
 
@@ -381,7 +381,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
-            Arg.Is<InteractionsHistoryFilters>(f => f.MaxPulses == 5000),
+            Arg.Is(ArgMatchers.Matching<InteractionsHistoryFilters>(f => f.MaxPulses == 5000)),
             Arg.Any<CancellationToken>());
     }
 
@@ -399,7 +399,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
-            Arg.Is<InteractionsHistoryFilters>(f => f.Neighbours == 2),
+            Arg.Is(ArgMatchers.Matching<InteractionsHistoryFilters>(f => f.Neighbours == 2)),
             Arg.Any<CancellationToken>());
     }
 
@@ -417,7 +417,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
-            Arg.Is<InteractionsHistoryFilters>(f => f.Cap == null),
+            Arg.Is(ArgMatchers.Matching<InteractionsHistoryFilters>(f => f.Cap == null)),
             Arg.Any<CancellationToken>());
     }
 
@@ -435,7 +435,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
-            Arg.Is<InteractionsHistoryFilters>(f => f.Cap == 50),
+            Arg.Is(ArgMatchers.Matching<InteractionsHistoryFilters>(f => f.Cap == 50)),
             Arg.Any<CancellationToken>());
     }
 

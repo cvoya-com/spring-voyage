@@ -79,11 +79,11 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.ThreadQueryService.Received(1)
             .ListAsync(
-                Arg.Is<ThreadQueryFilters>(f =>
+                Arg.Is(ArgMatchers.Matching<ThreadQueryFilters>(f =>
                     f.Unit == "eng-team" &&
                     f.Agent == "ada" &&
                     f.Participant == "human://savasp" &&
-                    f.Limit == 25),
+                    f.Limit == 25)),
                 Arg.Any<CancellationToken>());
     }
 
@@ -242,11 +242,11 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         result!.ThreadId.ShouldBe("c-1");
 
         await _factory.MessageRouter.Received(1).RouteAsync(
-            Arg.Is<Message>(m =>
+            Arg.Is(ArgMatchers.Matching<Message>(m =>
                 m.ThreadId == "c-1" &&
                 m.Type == MessageType.Domain &&
                 m.To.Scheme == "agent" &&
-                m.To.Id == Agent_Ada_Id),
+                m.To.Id == Agent_Ada_Id)),
             Arg.Any<CancellationToken>());
     }
 
@@ -489,7 +489,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.ThreadQueryService.Received(1)
             .ListAsync(
-                Arg.Is<ThreadQueryFilters>(f => f.Archived == true),
+                Arg.Is(ArgMatchers.Matching<ThreadQueryFilters>(f => f.Archived == true)),
                 Arg.Any<CancellationToken>());
     }
 
@@ -510,7 +510,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.ThreadQueryService.Received(1)
             .ListAsync(
-                Arg.Is<ThreadQueryFilters>(f => f.Archived == null),
+                Arg.Is(ArgMatchers.Matching<ThreadQueryFilters>(f => f.Archived == null)),
                 Arg.Any<CancellationToken>());
     }
 

@@ -199,10 +199,10 @@ public class AgentActorReflectionDispatchTests
         await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
 
         await _router.Received(1).RouteAsync(
-            Arg.Is<Message>(m => m.Id == translated.Id),
+            Arg.Is(ArgMatchers.Matching<Message>(m => m.Id == translated.Id)),
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionDispatched),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionDispatched)),
             Arg.Any<CancellationToken>());
     }
 
@@ -220,10 +220,10 @@ public class AgentActorReflectionDispatchTests
         await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
 
         await _initiativeEvaluator.Received(1).EvaluateAsync(
-            Arg.Is<InitiativeEvaluationContext>(c =>
+            Arg.Is(ArgMatchers.Matching<InitiativeEvaluationContext>(c =>
                 c.AgentId == AgentIdHex &&
                 c.Action.ActionType == "send-message" &&
-                c.Signals.Count == 1),
+                c.Signals.Count == 1)),
             Arg.Any<CancellationToken>());
     }
 
@@ -246,10 +246,10 @@ public class AgentActorReflectionDispatchTests
 
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ReflectionActionDispatched ||
                 e.EventType == ActivityEventType.ReflectionActionProposed ||
-                e.EventType == ActivityEventType.ReflectionActionSkipped),
+                e.EventType == ActivityEventType.ReflectionActionSkipped)),
             Arg.Any<CancellationToken>());
     }
 
@@ -273,9 +273,9 @@ public class AgentActorReflectionDispatchTests
 
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ReflectionActionProposed &&
-                e.Summary.Contains("proactive level always requires confirmation")),
+                e.Summary.Contains("proactive level always requires confirmation"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -301,9 +301,9 @@ public class AgentActorReflectionDispatchTests
         await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ReflectionActionProposed &&
-                e.Summary.Contains("fail-closed")),
+                e.Summary.Contains("fail-closed"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -326,9 +326,9 @@ public class AgentActorReflectionDispatchTests
 
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ReflectionActionProposed &&
-                e.Summary.Contains("fail-closed")),
+                e.Summary.Contains("fail-closed"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -344,7 +344,7 @@ public class AgentActorReflectionDispatchTests
 
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped)),
             Arg.Any<CancellationToken>());
     }
 
@@ -368,7 +368,7 @@ public class AgentActorReflectionDispatchTests
 
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped)),
             Arg.Any<CancellationToken>());
     }
 
@@ -404,10 +404,10 @@ public class AgentActorReflectionDispatchTests
 
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionDispatched),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionDispatched)),
             Arg.Any<CancellationToken>());
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped)),
             Arg.Any<CancellationToken>());
     }
 
@@ -423,7 +423,7 @@ public class AgentActorReflectionDispatchTests
 
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped)),
             Arg.Any<CancellationToken>());
     }
 

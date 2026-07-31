@@ -74,8 +74,8 @@ public class InitiativeEngineTests
             TestContext.Current.CancellationToken);
 
         await _tier1.Received(1).ScreenAsync(
-            Arg.Is<ScreeningContext>(ctx =>
-                ctx.AgentInstructions == "You are a code-review agent."),
+            Arg.Is(ArgMatchers.Matching<ScreeningContext>(ctx =>
+                ctx.AgentInstructions == "You are a code-review agent.")),
             Arg.Any<CancellationToken>());
     }
 
@@ -102,8 +102,8 @@ public class InitiativeEngineTests
             TestContext.Current.CancellationToken);
 
         await _tier2.Received(1).ReflectAsync(
-            Arg.Is<ReflectionContext>(ctx =>
-                ctx.AgentInstructions == "You are a code-review agent."),
+            Arg.Is(ArgMatchers.Matching<ReflectionContext>(ctx =>
+                ctx.AgentInstructions == "You are a code-review agent.")),
             Arg.Any<CancellationToken>());
     }
 
@@ -124,8 +124,8 @@ public class InitiativeEngineTests
             TestContext.Current.CancellationToken);
 
         await _tier1.Received(1).ScreenAsync(
-            Arg.Is<ScreeningContext>(ctx =>
-                ctx.AgentInstructions == InitiativeEngine.MissingInstructionsFallback),
+            Arg.Is(ArgMatchers.Matching<ScreeningContext>(ctx =>
+                ctx.AgentInstructions == InitiativeEngine.MissingInstructionsFallback)),
             Arg.Any<CancellationToken>());
     }
 
@@ -146,8 +146,8 @@ public class InitiativeEngineTests
             TestContext.Current.CancellationToken);
 
         await _tier1.Received(1).ScreenAsync(
-            Arg.Is<ScreeningContext>(ctx =>
-                ctx.AgentInstructions == InitiativeEngine.MissingInstructionsFallback),
+            Arg.Is(ArgMatchers.Matching<ScreeningContext>(ctx =>
+                ctx.AgentInstructions == InitiativeEngine.MissingInstructionsFallback)),
             Arg.Any<CancellationToken>());
     }
 
@@ -172,9 +172,9 @@ public class InitiativeEngineTests
             TestContext.Current.CancellationToken);
 
         await _tier1.Received(1).ScreenAsync(
-            Arg.Is<ScreeningContext>(ctx =>
+            Arg.Is(ArgMatchers.Matching<ScreeningContext>(ctx =>
                 !ctx.AgentInstructions.Contains("Allowed actions:") &&
-                !ctx.AgentInstructions.Contains("send-message")),
+                !ctx.AgentInstructions.Contains("send-message"))),
             Arg.Any<CancellationToken>());
     }
 

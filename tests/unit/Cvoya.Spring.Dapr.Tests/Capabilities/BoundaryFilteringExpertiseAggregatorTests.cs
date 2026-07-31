@@ -109,7 +109,7 @@ public class BoundaryFilteringExpertiseAggregatorTests
     private void ArrangeBoundary(Address unit, UnitBoundary boundary)
     {
         _boundaryStore.GetAsync(
-            Arg.Is<Address>(a => a == unit),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a == unit)),
             Arg.Any<CancellationToken>()).Returns(boundary);
     }
 
@@ -410,7 +410,7 @@ public class BoundaryFilteringExpertiseAggregatorTests
         ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Expert));
 
         _boundaryStore.GetAsync(
-            Arg.Is<Address>(a => a == unit),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a == unit)),
             Arg.Any<CancellationToken>())
             .Returns<Task<UnitBoundary>>(_ => throw new InvalidOperationException("store-down"));
 

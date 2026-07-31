@@ -46,7 +46,7 @@ public class UnregisterAgentActivityTests
 
         result.ShouldBeTrue();
         await _directoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == agentHex),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Path == agentHex)),
             Arg.Any<CancellationToken>());
     }
 }

@@ -215,13 +215,13 @@ public class AgentLifecycleEndpointTests : IClassFixture<CustomWebApplicationFac
                 null,
                 DateTimeOffset.UtcNow);
             _factory.DirectoryService
-                .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentId_Guid), Arg.Any<CancellationToken>())
+                .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentId_Guid)), Arg.Any<CancellationToken>())
                 .Returns(entry);
         }
         else
         {
             _factory.DirectoryService
-                .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentId_Guid), Arg.Any<CancellationToken>())
+                .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentId_Guid)), Arg.Any<CancellationToken>())
                 .Returns((DirectoryEntry?)null);
         }
     }
@@ -230,7 +230,7 @@ public class AgentLifecycleEndpointTests : IClassFixture<CustomWebApplicationFac
     {
         ArrangeAgent(found: true);
         _factory.ActorProxyFactory
-            .CreateActorProxy<IAgentActor>(Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentId), Arg.Any<string>())
+            .CreateActorProxy<IAgentActor>(Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentId)), Arg.Any<string>())
             .Returns(proxy);
     }
 }

@@ -137,7 +137,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
             .When(b => b.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>()))
             .Do(call =>
             {
-                var ev = call.Arg<ActivityEvent>();
+                var ev = call.Arg<ActivityEvent>()!;
                 // Capture only the outbound-message envelope (skip any
                 // other events the host may emit during the request).
                 if (ev.EventType == ActivityEventType.MessageSent
@@ -187,7 +187,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
         StubAgent(AgentNoReachId, out _);
         _factory.HatReachability.GetWearableHatsAsync(
                 Arg.Any<Guid>(),
-                Arg.Is<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == AgentNoReachId)),
+                Arg.Is(ArgMatchers.Matching<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == AgentNoReachId))),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Guid>>(Array.Empty<Guid>()));
 
@@ -218,7 +218,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
         // The wearable set for this target excludes the explicitly-chosen Hat.
         _factory.HatReachability.GetWearableHatsAsync(
                 Arg.Any<Guid>(),
-                Arg.Is<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == AgentExplicitUnreachId)),
+                Arg.Is(ArgMatchers.Matching<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == AgentExplicitUnreachId))),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Guid>>(new[] { reachableButOtherHat }));
 
@@ -247,7 +247,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -256,7 +256,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
         agent.ReceiveAsync(Arg.Do<Message>(m => captured = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 agentId.ToString("N"))
             .Returns(agent);
 

@@ -109,10 +109,10 @@ public class OAuthTokenPersisterTests
 
         // Registry got the (Tenant, current-tenant, secret-name) triple.
         await harness.Registry.Received(1).RegisterAsync(
-            Arg.Is<SecretRef>(r =>
+            Arg.Is(ArgMatchers.Matching<SecretRef>(r =>
                 r.Scope == SecretScope.Tenant
                 && r.OwnerId == TestTenantId
-                && r.Name == outcome.PatSecretName),
+                && r.Name == outcome.PatSecretName)),
             Arg.Any<string>(),
             SecretOrigin.PlatformOwned,
             Arg.Any<CancellationToken>());

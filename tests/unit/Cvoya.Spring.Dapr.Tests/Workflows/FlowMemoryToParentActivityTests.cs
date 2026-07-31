@@ -95,7 +95,13 @@ public class FlowMemoryToParentActivityTests
             "parent-agent", "clone-1",
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
 
-        _stateStore.GetAsync<object>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _stateStore.GetAsync<List<string>>(
+                $"clone-1:{StateKeys.ChannelIndex}",
+                Arg.Any<CancellationToken>())
+            .Returns((List<string>?)null);
+        _stateStore.GetAsync<object>(
+                $"clone-1:{StateKeys.InitiativeState}",
+                Arg.Any<CancellationToken>())
             .Returns((object?)null);
 
         await _activity.RunAsync(_context, input);

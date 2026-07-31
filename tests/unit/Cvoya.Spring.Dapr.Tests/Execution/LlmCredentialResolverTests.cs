@@ -108,7 +108,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1 && r.Name == "anthropic-api-key"),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1 && r.Name == "anthropic-api-key")),
                 ct)
             .Returns(new SecretResolution("sk-unit", SecretResolvePath.Direct, new SecretRef(SecretScope.Unit, UnitU1, "anthropic-api-key")));
 
@@ -149,7 +149,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.OwnerId == TenantId && r.Name == "anthropic-api-key"),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Tenant && r.OwnerId == TenantId && r.Name == "anthropic-api-key")),
                 ct)
             .Returns(new SecretResolution(
                 "sk-tenant-default",
@@ -212,7 +212,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == expectedSecretName),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == expectedSecretName)),
                 ct)
             .Returns(new SecretResolution(
                 "value",
@@ -234,7 +234,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == "anthropic-oauth"),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == "anthropic-oauth")),
                 ct)
             .Returns(new SecretResolution(
                 "oauth-token",
@@ -261,7 +261,7 @@ public class LlmCredentialResolverTests
         const string bespokeName = "bespoke-api-key";
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Name == bespokeName),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Name == bespokeName)),
                 ct)
             .Returns(new SecretResolution(
                 "bespoke-value",
@@ -287,7 +287,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == "anthropic-api-key"),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Tenant && r.Name == "anthropic-api-key")),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
 
@@ -309,7 +309,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1)),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
 
@@ -359,7 +359,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1 && r.Name == "anthropic-api-key"),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1 && r.Name == "anthropic-api-key")),
                 ct)
             .Returns(new SecretResolution(
                 "sk-agent",
@@ -368,7 +368,7 @@ public class LlmCredentialResolverTests
         // Unit and tenant return values too — must NOT be consulted past
         // the agent hit.
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit)),
                 ct)
             .Returns(new SecretResolution(
                 "sk-unit",
@@ -392,11 +392,11 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Agent),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Agent)),
                 ct)
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitU1)),
                 ct)
             .Returns(new SecretResolution(
                 "sk-unit",
@@ -423,7 +423,7 @@ public class LlmCredentialResolverTests
         // Direct unit lookup falls through to tenant (no unit row, has
         // tenant default).
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild)),
                 ct)
             .Returns(new SecretResolution(
                 "sk-tenant",
@@ -432,7 +432,7 @@ public class LlmCredentialResolverTests
 
         // Parent-unit Direct lookup returns the propagating value.
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent)),
                 ct)
             .Returns(new SecretResolution(
                 "sk-parent",
@@ -441,7 +441,7 @@ public class LlmCredentialResolverTests
 
         var secretRegistry = Substitute.For<ISecretRegistry>();
         secretRegistry.LookupPropagateAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent)),
                 ct)
             .Returns(true);
 
@@ -477,7 +477,7 @@ public class LlmCredentialResolverTests
 
         // Child unit lookup falls through to tenant.
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild)),
                 ct)
             .Returns(new SecretResolution(
                 "sk-tenant",
@@ -487,7 +487,7 @@ public class LlmCredentialResolverTests
         var secretRegistry = Substitute.For<ISecretRegistry>();
         // Parent has the row but it's sealed (propagate=false).
         secretRegistry.LookupPropagateAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent)),
                 ct)
             .Returns(false);
 
@@ -508,7 +508,7 @@ public class LlmCredentialResolverTests
         // propagate=false short-circuits before the SecretResolver
         // consult (#1737 contract).
         await resolver.DidNotReceive().ResolveWithPathAsync(
-            Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent),
+            Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent)),
             ct);
     }
 
@@ -523,13 +523,13 @@ public class LlmCredentialResolverTests
 
         // Child unit hits NotFound on its own row; tenant has nothing.
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild)),
                 ct)
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
 
         // Grandparent owns the propagating value.
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitGrandparent),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitGrandparent)),
                 ct)
             .Returns(new SecretResolution(
                 "sk-grandparent",
@@ -538,11 +538,11 @@ public class LlmCredentialResolverTests
 
         var secretRegistry = Substitute.For<ISecretRegistry>();
         secretRegistry.LookupPropagateAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent)),
                 ct)
             .Returns((bool?)null); // parent has no row
         secretRegistry.LookupPropagateAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitGrandparent),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitGrandparent)),
                 ct)
             .Returns(true);
 
@@ -590,18 +590,18 @@ public class LlmCredentialResolverTests
                 _ => new SecretResolution(null, SecretResolvePath.NotFound, null),
             };
             resolver.ResolveWithPathAsync(
-                    Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild),
+                    Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitChild)),
                     ct)
                 .Returns(unitFallthrough);
             resolver.ResolveWithPathAsync(
-                    Arg.Is<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1),
+                    Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1)),
                     ct)
                 .Returns(agentHas
                     ? new SecretResolution("sk-agent", SecretResolvePath.Direct,
                         new SecretRef(SecretScope.Agent, AgentA1, "anthropic-api-key"))
                     : new SecretResolution(null, SecretResolvePath.NotFound, null));
             resolver.ResolveWithPathAsync(
-                    Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent),
+                    Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent)),
                     ct)
                 .Returns(parentHas
                     ? new SecretResolution("sk-parent", SecretResolvePath.Direct,
@@ -610,7 +610,7 @@ public class LlmCredentialResolverTests
 
             var secretRegistry = Substitute.For<ISecretRegistry>();
             secretRegistry.LookupPropagateAsync(
-                    Arg.Is<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent),
+                    Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Unit && r.OwnerId == UnitParent)),
                     ct)
                 .Returns(parentHas ? true : (bool?)null);
 
@@ -639,7 +639,7 @@ public class LlmCredentialResolverTests
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1),
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Scope == SecretScope.Agent && r.OwnerId == AgentA1)),
                 ct)
             .Returns(Task.FromException<SecretResolution>(new SecretUnreadableException()));
 

@@ -53,7 +53,7 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
         var ct = TestContext.Current.CancellationToken;
         var ghost = Guid.NewGuid();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == ghost), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ghost)), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.GetAsync(
@@ -132,7 +132,7 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
     }
@@ -149,7 +149,7 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
                 ObservedAt: DateTimeOffset.UtcNow));
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorIdString),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorIdString)),
                 Arg.Any<string>())
             .Returns(proxy);
     }

@@ -54,11 +54,11 @@ public class RegisterCloneActivityTests
 
         result.ShouldBeTrue();
         await _directoryService.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
                 e.Address.Scheme == "agent" &&
                 e.Address.Id == CloneGuid &&
                 e.ActorId == CloneGuid &&
-                e.Description.Contains("detached")),
+                e.Description.Contains("detached"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -72,8 +72,8 @@ public class RegisterCloneActivityTests
         await _activity.RunAsync(_context, input);
 
         await _directoryService.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
-                e.Description.Contains("attached")),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
+                e.Description.Contains("attached"))),
             Arg.Any<CancellationToken>());
     }
 }

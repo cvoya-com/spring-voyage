@@ -124,9 +124,9 @@ public class AgentMetadataTests
             Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>());
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("metadata updated")),
+                e.Summary.Contains("metadata updated"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -192,9 +192,9 @@ public class AgentMetadataTests
         // unit_memberships, exercised by the unit unassign endpoint.
         // The actor's job here is only the audit event.
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("parent-unit cleared")),
+                e.Summary.Contains("parent-unit cleared"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -216,9 +216,9 @@ public class AgentMetadataTests
         stored[0].Level.ShouldBe(ExpertiseLevel.Advanced);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("expertise replaced")),
+                e.Summary.Contains("expertise replaced"))),
             Arg.Any<CancellationToken>());
     }
 

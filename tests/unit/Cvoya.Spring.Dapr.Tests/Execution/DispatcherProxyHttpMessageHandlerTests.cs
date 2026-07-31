@@ -56,7 +56,7 @@ public class DispatcherProxyHttpMessageHandlerTests
         await runtime.Received(1).SendHttpJsonAsync(
             ContainerId,
             "http://localhost:8999/",
-            Arg.Is<byte[]>(b => Encoding.UTF8.GetString(b) == requestBody),
+            Arg.Is(ArgMatchers.Matching<byte[]>(b => Encoding.UTF8.GetString(b) == requestBody)),
             Arg.Any<CancellationToken>());
     }
 

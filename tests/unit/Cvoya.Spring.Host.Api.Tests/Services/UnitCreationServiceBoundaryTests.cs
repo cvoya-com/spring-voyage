@@ -87,15 +87,15 @@ public class UnitCreationServiceBoundaryTests
         // the Address is keyed by the unit's actor Guid (server-minted),
         // so we assert on scheme only here.
         await boundaryStore.Received(1).SetAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit"),
-            Arg.Is<UnitBoundary>(b =>
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit")),
+            Arg.Is(ArgMatchers.Matching<UnitBoundary>(b =>
                 b.Opacities != null && b.Opacities.Count == 2
                 && b.Projections != null && b.Projections.Count == 1
                 && b.Syntheses != null && b.Syntheses.Count == 1
                 && b.Projections[0].RenameTo == "engineering"
                 && b.Projections[0].OverrideLevel == ExpertiseLevel.Advanced
                 && b.Syntheses[0].Name == "full-stack"
-                && b.Syntheses[0].Level == ExpertiseLevel.Expert),
+                && b.Syntheses[0].Level == ExpertiseLevel.Expert)),
             Arg.Any<CancellationToken>());
     }
 
@@ -240,10 +240,10 @@ public class UnitCreationServiceBoundaryTests
 
         await boundaryStore.Received(1).SetAsync(
             Arg.Any<Address>(),
-            Arg.Is<UnitBoundary>(b =>
+            Arg.Is(ArgMatchers.Matching<UnitBoundary>(b =>
                 b.Projections != null
                 && b.Projections.Count == 1
-                && b.Projections[0].OverrideLevel == null),
+                && b.Projections[0].OverrideLevel == null)),
             Arg.Any<CancellationToken>());
     }
 

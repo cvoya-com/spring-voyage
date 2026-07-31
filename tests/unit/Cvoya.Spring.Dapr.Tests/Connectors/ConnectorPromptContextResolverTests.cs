@@ -80,10 +80,10 @@ public class ConnectorPromptContextResolverTests
         _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(ConnectorAId, JsonSerializer.SerializeToElement(new { })));
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Unit1)), Arg.Any<CancellationToken>())
             .Returns([new Address(Address.UnitScheme, ParentUnit)]);
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ParentUnit)), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var contributor = new StubPromptContributor(ConnectorAId, "### inherited fragment");
@@ -131,10 +131,10 @@ public class ConnectorPromptContextResolverTests
         _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(ConnectorBId, JsonSerializer.SerializeToElement(new { })));
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Unit1)), Arg.Any<CancellationToken>())
             .Returns([new Address(Address.UnitScheme, ParentUnit)]);
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ParentUnit)), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var aContributor = new StubPromptContributor(ConnectorAId, "### A fragment");
@@ -167,10 +167,10 @@ public class ConnectorPromptContextResolverTests
         _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(ConnectorAId, parentConfig));
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Unit1)), Arg.Any<CancellationToken>())
             .Returns([new Address(Address.UnitScheme, ParentUnit)]);
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ParentUnit)), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var contributor = new StubPromptContributor(ConnectorAId, "### leaf fragment");

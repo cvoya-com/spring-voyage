@@ -432,11 +432,11 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
             DateTimeOffset.UtcNow);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)), Arg.Any<CancellationToken>())
             .Returns(entry);
 
         _factory.ActorProxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId), Arg.Any<string>())
+            .CreateActorProxy<IUnitActor>(Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId)), Arg.Any<string>())
             .Returns(proxy);
     }
 }

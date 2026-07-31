@@ -144,7 +144,7 @@ public class DefaultTenantBootstrapServiceTests
 
         await sut.StartAsync(TestContext.Current.CancellationToken);
 
-        bypass.Received(1).BeginBypass(Arg.Is<string>(s => s.Contains("bootstrap")));
+        bypass.Received(1).BeginBypass(Arg.Is(ArgMatchers.Matching<string>(s => s.Contains("bootstrap"))));
         disposable.Received(1).Dispose();
     }
 

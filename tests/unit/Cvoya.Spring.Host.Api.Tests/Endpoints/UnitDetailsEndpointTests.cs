@@ -143,7 +143,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "ghost"), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == "ghost")), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.GetAsync("/api/v1/tenant/units/ghost", ct);
@@ -278,7 +278,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         _factory.ToolGrantResolver
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.UnitScheme && a.Id == ActorEngineering_Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.UnitScheme && a.Id == ActorEngineering_Id)),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Cvoya.Spring.Core.Skills.EffectiveTool>>(
                 new[]
@@ -467,11 +467,11 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
             DateTimeOffset.UtcNow);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)), Arg.Any<CancellationToken>())
             .Returns(entry);
 
         _factory.ActorProxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId), Arg.Any<string>())
+            .CreateActorProxy<IUnitActor>(Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId)), Arg.Any<string>())
             .Returns(proxy);
     }
 }

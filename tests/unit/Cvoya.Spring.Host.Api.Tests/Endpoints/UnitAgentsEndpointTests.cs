@@ -234,7 +234,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         membership!.Enabled.ShouldBeTrue();
 
         await unitProxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -253,8 +253,8 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         _factory.TenantGuard
             .EnsureSameTenantAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitEngineeringUuid),
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentForeignAdaUuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitEngineeringUuid)),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentForeignAdaUuid)),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new CrossTenantMembershipException(
                 new Address("unit", UnitEngineeringUuid),
@@ -407,7 +407,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
         await unitProxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -431,7 +431,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
 
         await unitProxy.Received(1).RemoveMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid)),
             Arg.Any<CancellationToken>());
         // Cached pointer tracks the surviving membership now — it must NOT
         // have been cleared, since the agent still belongs to marketing.
@@ -526,7 +526,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
         (await GetMembershipAsync("product", "ada")).ShouldNotBeNull();
         await unitProxy.Received(1).RemoveMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -549,7 +549,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetMembershipAsync(UnitName, "ada")).ShouldBeNull();
         await unitProxy.Received(1).RemoveMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == AgentAdaUuid)),
             Arg.Any<CancellationToken>());
         await agentProxy.Received(1).ClearParentUnitAsync(Arg.Any<CancellationToken>());
     }
@@ -569,8 +569,8 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var unitProxy = ArrangeUnit();
         _factory.TenantGuard
             .EnsureSameTenantAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitEngineeringUuid),
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == foreignSubId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitEngineeringUuid)),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == foreignSubId)),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new CrossTenantMembershipException(
                 new Address("unit", UnitEngineeringUuid),
@@ -617,12 +617,12 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         // endpoint must NOT pass ParentUnit — containment is only mutable via
         // the unit's assign / unassign routes.
         await agentProxy.Received(1).SetMetadataAsync(
-            Arg.Is<AgentMetadata>(m =>
+            Arg.Is(ArgMatchers.Matching<AgentMetadata>(m =>
                 m.Enabled == false &&
                 m.Model == null &&
                 m.Specialty == null &&
                 m.ExecutionMode == null &&
-                m.ParentUnit == null),
+                m.ParentUnit == null)),
             Arg.Any<CancellationToken>());
     }
 
@@ -718,7 +718,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _arrangedEntries.Add(entry);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == uuid),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == uuid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -737,7 +737,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             .AddMemberAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
-                var member = callInfo.Arg<Address>();
+                var member = callInfo.Arg<Address>()!;
                 if (string.Equals(member.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
                 {
                     using var scope = _factory.Services.CreateScope();
@@ -752,7 +752,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             .RemoveMemberAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
-                var member = callInfo.Arg<Address>();
+                var member = callInfo.Arg<Address>()!;
                 if (!string.Equals(member.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
                 {
                     return Task.CompletedTask;
@@ -773,7 +773,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             });
 
         _factory.ActorProxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Is<ActorId>(a => a.GetId() == actorId),
+            .CreateActorProxy<IUnitActor>(Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorId)),
                 Arg.Any<string>())
             .Returns(proxy);
         return proxy;
@@ -796,14 +796,14 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _arrangedEntries.Add(entry);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == actorUuid),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == actorUuid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
         var proxy = Substitute.For<IAgentActor>();
         proxy.GetMetadataAsync(Arg.Any<CancellationToken>()).Returns(metadata);
         _factory.ActorProxyFactory
-            .CreateActorProxy<IAgentActor>(Arg.Is<ActorId>(a => a.GetId() == actorIdStr),
+            .CreateActorProxy<IAgentActor>(Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorIdStr)),
                 Arg.Any<string>())
             .Returns(proxy);
         return proxy;

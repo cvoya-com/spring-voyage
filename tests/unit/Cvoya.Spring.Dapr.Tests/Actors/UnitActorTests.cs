@@ -209,7 +209,7 @@ public class UnitActorTests
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Arg.Any<Address>(),
             message,
-            Arg.Is<Func<ActivityEvent, CancellationToken, Task>>(d => d != null),
+            Arg.Is(ArgMatchers.Matching<Func<ActivityEvent, CancellationToken, Task>>(d => d != null)),
             Arg.Any<Func<string, Task>>(),
             Arg.Any<CancellationToken>());
     }
@@ -305,7 +305,7 @@ public class UnitActorTests
         // exactly the dispatched batch.
         await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.Messages.Count == 1 && c.InFlightCount == 1),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.Messages.Count == 1 && c.InFlightCount == 1)),
             Arg.Any<CancellationToken>());
     }
 
@@ -330,7 +330,7 @@ public class UnitActorTests
 
         await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.Messages.Count == 2 && c.Dispatching),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.Messages.Count == 2 && c.Dispatching)),
             Arg.Any<CancellationToken>());
         _actor.PendingDispatchTask.ShouldBeNull();
     }
@@ -355,7 +355,7 @@ public class UnitActorTests
         // stays Dispatching and a fresh dispatcher is launched for it.
         await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.Messages.Count == 1 && c.Dispatching),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.Messages.Count == 1 && c.Dispatching)),
             Arg.Any<CancellationToken>());
         var dispatch = _actor.PendingDispatchTask.ShouldNotBeNull();
         await dispatch;
@@ -539,9 +539,9 @@ public class UnitActorTests
         await _actor.AddMemberAsync(member, TestContext.Current.CancellationToken);
 
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged
-                && e.Summary.Contains("added")),
+                && e.Summary.Contains("added"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -568,9 +568,9 @@ public class UnitActorTests
         await _actor.RemoveMemberAsync(member, TestContext.Current.CancellationToken);
 
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged
-                && e.Summary.Contains("removed")),
+                && e.Summary.Contains("removed"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -674,7 +674,7 @@ public class UnitActorTests
         await _permissionStore.Received(1).UpsertAsync(
             TestUnitGuid,
             Human1,
-            Arg.Is<UnitPermissionEntry>(e => e.Permission == PermissionLevel.Operator && e.Identity == "Alice"),
+            Arg.Is(ArgMatchers.Matching<UnitPermissionEntry>(e => e.Permission == PermissionLevel.Operator && e.Identity == "Alice")),
             Arg.Any<CancellationToken>());
 
         // The legacy actor-state key is gone — no SetStateAsync call should
@@ -761,7 +761,7 @@ public class UnitActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived)),
             Arg.Any<CancellationToken>());
     }
 
@@ -778,9 +778,9 @@ public class UnitActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
-                && e.Summary == "Plan the next sprint."),
+                && e.Summary == "Plan the next sprint.")),
             Arg.Any<CancellationToken>());
     }
 
@@ -795,11 +795,11 @@ public class UnitActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
                 && !e.Summary.StartsWith("Received ")
                 && !e.Summary.Contains(message.Id.ToString())
-                && !e.Summary.Contains(message.From.Path)),
+                && !e.Summary.Contains(message.From.Path))),
             Arg.Any<CancellationToken>());
     }
 
@@ -811,8 +811,8 @@ public class UnitActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.DecisionMade),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.DecisionMade)),
             Arg.Any<CancellationToken>());
     }
 
@@ -824,9 +824,9 @@ public class UnitActorTests
         await _actor.AddMemberAsync(member, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("added")),
+                e.Summary.Contains("added"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -840,9 +840,9 @@ public class UnitActorTests
         await _actor.RemoveMemberAsync(member, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("removed")),
+                e.Summary.Contains("removed"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -869,14 +869,14 @@ public class UnitActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ErrorOccurred &&
                 e.Severity == ActivitySeverity.Error &&
                 e.CorrelationId == threadId &&
                 e.Details.HasValue &&
                 e.Details.Value.GetProperty("error").GetString() == errorText &&
                 e.Details.Value.GetProperty("agentId").GetString() == TestUnitActorId &&
-                e.Details.Value.GetProperty("threadId").GetString() == threadId),
+                e.Details.Value.GetProperty("threadId").GetString() == threadId)),
             Arg.Any<CancellationToken>());
     }
 
@@ -1034,9 +1034,9 @@ public class UnitActorTests
         await _actor.TransitionAsync(LifecycleStatus.Stopped, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("transitioned")),
+                e.Summary.Contains("transitioned"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -1051,9 +1051,9 @@ public class UnitActorTests
         await _actor.TransitionAsync(LifecycleStatus.Draft, TestContext.Current.CancellationToken);
 
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("transitioned")),
+                e.Summary.Contains("transitioned"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -1207,9 +1207,9 @@ public class UnitActorTests
         await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.StateChanged &&
-                e.Summary.Contains("metadata")),
+                e.Summary.Contains("metadata"))),
             Arg.Any<CancellationToken>());
     }
 
