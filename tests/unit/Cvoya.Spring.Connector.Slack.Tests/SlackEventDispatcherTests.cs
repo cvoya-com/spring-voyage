@@ -203,10 +203,10 @@ public class SlackEventDispatcherTests
 
         outcome.ShouldBe(SlackEventDispatchOutcome.Handled);
         await harness.MessageRouter.Received(1).RouteAsync(
-            Arg.Is<Message>(m =>
+            Arg.Is(ArgMatchers.Matching<Message>(m =>
                 m.From.Scheme == Address.HumanScheme
                 && m.From.Id == PrimaryHumanId
-                && m.ThreadId == svThreadId.ToString("N")),
+                && m.ThreadId == svThreadId.ToString("N"))),
             Arg.Any<CancellationToken>());
         harness.AuditLog.Records.ShouldContain(r =>
             r.Disposition == "forwarded" && r.EventType == "message.im");
@@ -453,12 +453,12 @@ public class SlackEventDispatcherTests
     {
         harness.DirectoryService!
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agent.Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agent.Id)),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(agent, agent.Id, "Agent", "test", null, DateTimeOffset.UtcNow));
         harness.AgentProxyResolver!
             .Resolve(
-                Arg.Is<string>(s => string.Equals(s, Address.AgentScheme, StringComparison.OrdinalIgnoreCase)),
+                Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))),
                 agent.Id.ToString("N"))
             .Returns(mailbox);
     }
@@ -547,7 +547,7 @@ public class SlackEventDispatcherTests
 
             // Fake secret resolver returning the bot token verbatim.
             var resolver = Substitute.For<ISecretResolver>();
-            resolver.ResolveWithPathAsync(Arg.Is<SecretRef>(r => r.Name.Contains("bot-token", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
+            resolver.ResolveWithPathAsync(Arg.Is(ArgMatchers.Matching<SecretRef>(r => r.Name.Contains("bot-token", StringComparison.Ordinal))), Arg.Any<CancellationToken>())
                 .Returns(new SecretResolution(
                     Value: "xoxb-test-token",
                     Path: SecretResolvePath.Direct,

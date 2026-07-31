@@ -136,7 +136,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitGuid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitGuid)), Arg.Any<CancellationToken>())
             .Returns(entry);
 
         var response = await _client.PatchAsJsonAsync(
@@ -176,7 +176,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitGuid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitGuid)), Arg.Any<CancellationToken>())
             .Returns(entry);
 
         var proxy = Substitute.For<Cvoya.Spring.Dapr.Actors.IUnitActor>();

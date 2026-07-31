@@ -51,10 +51,10 @@ public class EmitValidationProgressActivityTests
 
         result.ShouldBeTrue();
         await _bus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ValidationProgress &&
                 e.Source.Scheme == "unit" &&
-                e.Source.Path == UnitHex),
+                e.Source.Path == UnitHex)),
             Arg.Any<CancellationToken>());
     }
 
@@ -67,7 +67,7 @@ public class EmitValidationProgressActivityTests
         await _activity.RunAsync(context, input);
 
         await _bus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.Severity == ActivitySeverity.Info),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.Severity == ActivitySeverity.Info)),
             Arg.Any<CancellationToken>());
     }
 
@@ -80,7 +80,7 @@ public class EmitValidationProgressActivityTests
         await _activity.RunAsync(context, input);
 
         await _bus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning)),
             Arg.Any<CancellationToken>());
     }
 

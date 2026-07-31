@@ -48,11 +48,11 @@ public class CreateCloneActorActivityTests
 
         await _stateStore.Received(1).SetAsync(
             $"clone-1:{StateKeys.CloneIdentity}",
-            Arg.Is<CloneIdentity>(ci =>
+            Arg.Is(ArgMatchers.Matching<CloneIdentity>(ci =>
                 ci.ParentAgentId == "parent-agent" &&
                 ci.CloneId == "clone-1" &&
                 ci.CloningPolicy == CloningPolicy.EphemeralNoMemory &&
-                ci.AttachmentMode == AttachmentMode.Detached),
+                ci.AttachmentMode == AttachmentMode.Detached)),
             Arg.Any<CancellationToken>());
     }
 
@@ -71,7 +71,7 @@ public class CreateCloneActorActivityTests
 
         await _stateStore.Received(1).SetAsync(
             $"parent-agent:{StateKeys.CloneChildren}",
-            Arg.Is<List<string>>(list => list.Contains("clone-1")),
+            Arg.Is(ArgMatchers.Matching<List<string>>(list => list.Contains("clone-1"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -142,10 +142,10 @@ public class CreateCloneActorActivityTests
         await _activity.RunAsync(_context, input);
 
         await _stateStore.DidNotReceive().GetAsync<object>(
-            Arg.Is<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal)),
+            Arg.Is(ArgMatchers.Matching<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal))),
             Arg.Any<CancellationToken>());
         await _stateStore.DidNotReceive().SetAsync(
-            Arg.Is<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal)),
+            Arg.Is(ArgMatchers.Matching<string>(k => k.EndsWith(":Agent:Definition", StringComparison.Ordinal))),
             Arg.Any<object>(),
             Arg.Any<CancellationToken>());
     }

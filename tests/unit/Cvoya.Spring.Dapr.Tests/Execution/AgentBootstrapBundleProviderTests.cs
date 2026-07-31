@@ -283,7 +283,7 @@ public class AgentBootstrapBundleProviderTests
         promptFile.Content.ShouldBe("USER ASSEMBLED PROMPT");
 
         await _promptAssembler.Received(1).AssembleAsync(
-            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && ctx.ConcurrentConversationsGuard),
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx => ctx != null && ctx.ConcurrentConversationsGuard)),
             Arg.Any<CancellationToken>());
     }
 
@@ -303,7 +303,7 @@ public class AgentBootstrapBundleProviderTests
         promptFile.Content.ShouldBe("USER ASSEMBLED PROMPT");
 
         await _promptAssembler.Received(1).AssembleAsync(
-            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && !ctx.ConcurrentConversationsGuard),
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx => ctx != null && !ctx.ConcurrentConversationsGuard)),
             Arg.Any<CancellationToken>());
     }
 

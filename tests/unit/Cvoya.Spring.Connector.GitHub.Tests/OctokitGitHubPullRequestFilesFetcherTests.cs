@@ -78,11 +78,11 @@ public class OctokitGitHubPullRequestFilesFetcherTests
         });
 
         // Configure per-page returns by latching on StartPage.
-        client.PullRequest.Files("o", "r", 7, Arg.Is<ApiOptions>(o => o.StartPage == 1))
+        client.PullRequest.Files("o", "r", 7, Arg.Is(ArgMatchers.Matching<ApiOptions>(o => o.StartPage == 1)))
             .Returns(fullPage);
-        client.PullRequest.Files("o", "r", 7, Arg.Is<ApiOptions>(o => o.StartPage == 2))
+        client.PullRequest.Files("o", "r", 7, Arg.Is(ArgMatchers.Matching<ApiOptions>(o => o.StartPage == 2)))
             .Returns(fullPage2);
-        client.PullRequest.Files("o", "r", 7, Arg.Is<ApiOptions>(o => o.StartPage == 3))
+        client.PullRequest.Files("o", "r", 7, Arg.Is(ArgMatchers.Matching<ApiOptions>(o => o.StartPage == 3)))
             .Returns(partial);
 
         var fetcher = BuildFetcher(client);
@@ -219,7 +219,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         await connector.Received(1)
             .CreateAuthenticatedClientForBindingAsync(
-                Arg.Is<UnitGitHubConfig>(c => c.AppInstallationId == 9001),
+                Arg.Is(ArgMatchers.Matching<UnitGitHubConfig>(c => c.AppInstallationId == 9001)),
                 Arg.Any<CancellationToken>());
     }
 
@@ -248,7 +248,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         await connector.Received(1)
             .CreateAuthenticatedClientForBindingAsync(
-                Arg.Is<UnitGitHubConfig>(c => c.PatSecretName == "binding/abc/github/pat"),
+                Arg.Is(ArgMatchers.Matching<UnitGitHubConfig>(c => c.PatSecretName == "binding/abc/github/pat")),
                 Arg.Any<CancellationToken>());
     }
 

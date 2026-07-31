@@ -67,12 +67,12 @@ public class ObservationEndpointsTests : IClassFixture<ObservationEndpointsTests
 
         await _factory.ThreadQueryService.Received(1)
             .ListAsync(
-                Arg.Is<ThreadQueryFilters>(f =>
+                Arg.Is(ArgMatchers.Matching<ThreadQueryFilters>(f =>
                     f.Unit == null &&
                     f.Agent == null &&
                     f.Participant == null &&
                     f.Limit == null &&
-                    f.Archived == null),
+                    f.Archived == null)),
                 Arg.Any<CancellationToken>());
     }
 
@@ -95,11 +95,11 @@ public class ObservationEndpointsTests : IClassFixture<ObservationEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.ThreadQueryService.Received(1)
             .ListAsync(
-                Arg.Is<ThreadQueryFilters>(f =>
+                Arg.Is(ArgMatchers.Matching<ThreadQueryFilters>(f =>
                     f.Unit == "eng-team" &&
                     f.Agent == "ada" &&
                     f.Participant == "human://savasp" &&
-                    f.Limit == 25),
+                    f.Limit == 25)),
                 Arg.Any<CancellationToken>());
     }
 
@@ -196,9 +196,9 @@ public class ObservationEndpointsTests : IClassFixture<ObservationEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.ThreadQueryService.Received(1)
             .ListAsync(
-                Arg.Is<ThreadQueryFilters>(f =>
+                Arg.Is(ArgMatchers.Matching<ThreadQueryFilters>(f =>
                     f.Since.HasValue &&
-                    f.Since.Value == new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero)),
+                    f.Since.Value == new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero))),
                 Arg.Any<CancellationToken>());
     }
 

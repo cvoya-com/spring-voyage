@@ -345,8 +345,8 @@ public class HumanActorTests : IDisposable
 
         await _stateManager.Received(1).SetStateAsync(
             StateKeys.HumanLastReadAt,
-            Arg.Is<Dictionary<string, DateTimeOffset>>(d =>
-                d.ContainsKey("thread-1") && d["thread-1"] == readAt),
+            Arg.Is(ArgMatchers.Matching<Dictionary<string, DateTimeOffset>>(d =>
+                d.ContainsKey("thread-1") && d["thread-1"] == readAt)),
             Arg.Any<CancellationToken>());
     }
 
@@ -366,8 +366,8 @@ public class HumanActorTests : IDisposable
 
         await _stateManager.Received(1).SetStateAsync(
             StateKeys.HumanLastReadAt,
-            Arg.Is<Dictionary<string, DateTimeOffset>>(d =>
-                d.ContainsKey("thread-1") && d["thread-1"] == later),
+            Arg.Is(ArgMatchers.Matching<Dictionary<string, DateTimeOffset>>(d =>
+                d.ContainsKey("thread-1") && d["thread-1"] == later)),
             Arg.Any<CancellationToken>());
     }
 
@@ -440,9 +440,9 @@ public class HumanActorTests : IDisposable
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
-                && e.Summary == "Approve merge?"),
+                && e.Summary == "Approve merge?")),
             Arg.Any<CancellationToken>());
     }
 
@@ -462,9 +462,9 @@ public class HumanActorTests : IDisposable
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
-                && e.Summary == "Looks good — shipping."),
+                && e.Summary == "Looks good — shipping.")),
             Arg.Any<CancellationToken>());
     }
 
@@ -480,11 +480,11 @@ public class HumanActorTests : IDisposable
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
                 && !e.Summary.StartsWith("Received ")
                 && !e.Summary.Contains(message.Id.ToString())
-                && !e.Summary.Contains(message.From.Path)),
+                && !e.Summary.Contains(message.From.Path))),
             Arg.Any<CancellationToken>());
     }
 }

@@ -94,7 +94,7 @@ public class GitHubLabelRoutingRoundtrip
         client.Issue.Labels.ReceivedCalls().Count().ShouldBe(2);
         await client.Issue.Labels.Received(1)
             .AddToIssue("acme", "platform", 314,
-                Arg.Is<string[]>(labels => labels.SequenceEqual(new[] { "triage" })));
+                Arg.Is(ArgMatchers.Matching<string[]>(labels => labels.SequenceEqual(new[] { "triage" }))));
         await client.Issue.Labels.Received(1)
             .RemoveFromIssue("acme", "platform", 314, "needs-assignment");
     }

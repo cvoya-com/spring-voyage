@@ -182,7 +182,7 @@ public class AnthropicProviderTests
         _logger.Received().Log(
             LogLevel.Information,
             Arg.Any<EventId>(),
-            Arg.Is<object>(o => o.ToString()!.Contains("input: 10") && o.ToString()!.Contains("output: 25")),
+            Arg.Is(ArgMatchers.Matching<object>(o => o.ToString()!.Contains("input: 10") && o.ToString()!.Contains("output: 25"))),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
     }

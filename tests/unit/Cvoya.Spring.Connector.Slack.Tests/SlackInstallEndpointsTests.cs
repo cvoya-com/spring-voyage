@@ -97,11 +97,11 @@ public sealed class SlackInstallEndpointsTests
         body.GetProperty("state").GetString().ShouldBe("st-1");
 
         await service.Received(1).InstallAsync(
-            Arg.Is<SlackManifestInstallRequest>(r =>
+            Arg.Is(ArgMatchers.Matching<SlackManifestInstallRequest>(r =>
                 r.AppName == "Spring Voyage"
                 && r.ConfigToken == "xoxe.xoxp-test"
                 && r.SvHost == "https://sv.example.com"
-                && !r.DryRun),
+                && !r.DryRun)),
             Arg.Any<CancellationToken>());
     }
 
@@ -123,7 +123,7 @@ public sealed class SlackInstallEndpointsTests
         // The blank host falls back to the public base URL the request
         // arrived on (http://localhost:<port>).
         await service.Received(1).InstallAsync(
-            Arg.Is<SlackManifestInstallRequest>(r => r.SvHost.StartsWith("http://localhost", StringComparison.Ordinal)),
+            Arg.Is(ArgMatchers.Matching<SlackManifestInstallRequest>(r => r.SvHost.StartsWith("http://localhost", StringComparison.Ordinal))),
             Arg.Any<CancellationToken>());
     }
 

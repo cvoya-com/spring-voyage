@@ -212,7 +212,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         var unitGuid = Guid.Parse(unitName);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitGuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitGuid)),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
     }
@@ -222,7 +222,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         var unitGuid = Guid.Parse(unitName);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitGuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitGuid)),
                 Arg.Any<CancellationToken>())
             .Returns(_ => new DirectoryEntry(
                 new Address("unit", unitGuid),

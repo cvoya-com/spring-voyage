@@ -45,9 +45,9 @@ public class StreamEventPublisherTests
         await _daprClient.Received(1).PublishEventAsync(
             "test-pubsub",
             "agent/agent-1/stream",
-            Arg.Is<StreamEventEnvelope>(e =>
+            Arg.Is(ArgMatchers.Matching<StreamEventEnvelope>(e =>
                 e.AgentId == "agent-1" &&
-                e.EventType == "TokenDelta"),
+                e.EventType == "TokenDelta")),
             Arg.Any<CancellationToken>());
     }
 
@@ -61,9 +61,9 @@ public class StreamEventPublisherTests
         await _daprClient.Received(1).PublishEventAsync(
             "test-pubsub",
             "agent/agent-2/stream",
-            Arg.Is<StreamEventEnvelope>(e =>
+            Arg.Is(ArgMatchers.Matching<StreamEventEnvelope>(e =>
                 e.AgentId == "agent-2" &&
-                e.EventType == "Completed"),
+                e.EventType == "Completed")),
             Arg.Any<CancellationToken>());
     }
 
@@ -78,9 +78,9 @@ public class StreamEventPublisherTests
         await _daprClient.Received(1).PublishEventAsync(
             "test-pubsub",
             "agent/agent-3/stream",
-            Arg.Is<StreamEventEnvelope>(e =>
+            Arg.Is(ArgMatchers.Matching<StreamEventEnvelope>(e =>
                 e.EventType == "ThinkingDelta" &&
-                e.Payload.GetProperty("Text").GetString() == "Considering options..."),
+                e.Payload.GetProperty("Text").GetString() == "Considering options...")),
             Arg.Any<CancellationToken>());
     }
 }

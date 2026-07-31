@@ -55,7 +55,7 @@ public class SlackOAuthServiceTests
         result.AuthorizeUrl.ShouldContain("scope=");
 
         await _stateStore.Received(1).SaveAsync(
-            Arg.Is<SlackOAuthStateEntry>(s => s.State == result.State),
+            Arg.Is(ArgMatchers.Matching<SlackOAuthStateEntry>(s => s.State == result.State)),
             Arg.Any<CancellationToken>());
     }
 
@@ -81,13 +81,13 @@ public class SlackOAuthServiceTests
         success.InstallerUserId.ShouldBe("U-installer");
 
         await _installStore.Received(1).PersistInstallAsync(
-            Arg.Is<SlackInstallPayload>(p =>
+            Arg.Is(ArgMatchers.Matching<SlackInstallPayload>(p =>
                 p.TeamId == "T1"
                 && p.BotUserId == "U-bot"
                 && p.InstallerUserId == "U-installer"
                 && p.BotAccessToken == "xoxb-test"
                 && p.SigningSecret == "test-signing-secret"
-                && p.EnterpriseId == null),
+                && p.EnterpriseId == null)),
             Arg.Any<CancellationToken>());
     }
 
@@ -165,7 +165,7 @@ public class SlackOAuthServiceTests
 
         outcome.ShouldBeOfType<SlackCallbackOutcome.Success>();
         await _installStore.Received(1).PersistInstallAsync(
-            Arg.Is<SlackInstallPayload>(p => p.TeamId == "T-same"),
+            Arg.Is(ArgMatchers.Matching<SlackInstallPayload>(p => p.TeamId == "T-same")),
             Arg.Any<CancellationToken>());
     }
 

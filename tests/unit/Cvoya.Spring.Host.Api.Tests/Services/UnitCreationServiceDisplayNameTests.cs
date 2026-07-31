@@ -70,7 +70,7 @@ public class UnitCreationServiceDisplayNameTests
         result.Unit.DisplayName.ShouldBe("Spring Voyage OSS");
         // Directory write got the same value.
         await fixture.Directory.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.DisplayName == "Spring Voyage OSS"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.DisplayName == "Spring Voyage OSS")),
             Arg.Any<CancellationToken>());
     }
 
@@ -101,7 +101,7 @@ public class UnitCreationServiceDisplayNameTests
 
         result.Unit.DisplayName.ShouldBe("My Custom Label");
         await fixture.Directory.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.DisplayName == "My Custom Label"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.DisplayName == "My Custom Label")),
             Arg.Any<CancellationToken>());
     }
 
@@ -129,7 +129,7 @@ public class UnitCreationServiceDisplayNameTests
 
         result.Unit.DisplayName.ShouldBe("legacy-unit");
         await fixture.Directory.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.DisplayName == "legacy-unit"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.DisplayName == "legacy-unit")),
             Arg.Any<CancellationToken>());
     }
 

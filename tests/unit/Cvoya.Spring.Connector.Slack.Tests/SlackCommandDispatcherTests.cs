@@ -223,15 +223,15 @@ public class SlackCommandDispatcherTests
         await harness.WebApi.Received().OpenConversationAsync(
             "xoxb-test-token", "U-installer", Arg.Any<CancellationToken>());
         await harness.WebApi.Received().PostMessageAsync(
-            Arg.Is<string>(s => s == "xoxb-test-token"),
-            Arg.Is<string>(s => s == "D-installer"),
-            Arg.Is<string>(s => s.StartsWith("sv-", StringComparison.Ordinal)),
-            Arg.Is<string?>(s => s == null),
-            Arg.Is<string?>(s => s == null),
-            Arg.Is<string?>(s => s == null),
+            Arg.Is(ArgMatchers.Matching<string>(s => s == "xoxb-test-token")),
+            Arg.Is(ArgMatchers.Matching<string>(s => s == "D-installer")),
+            Arg.Is(ArgMatchers.Matching<string>(s => s.StartsWith("sv-", StringComparison.Ordinal))),
+            Arg.Is(ArgMatchers.Matching<string?>(s => s == null)),
+            Arg.Is(ArgMatchers.Matching<string?>(s => s == null)),
+            Arg.Is(ArgMatchers.Matching<string?>(s => s == null)),
             Arg.Any<CancellationToken>());
         await harness.MessageRouter.Received(1).RouteAsync(
-            Arg.Is<Message>(m => m.ThreadId == svThreadId.ToString("N")),
+            Arg.Is(ArgMatchers.Matching<Message>(m => m.ThreadId == svThreadId.ToString("N"))),
             Arg.Any<CancellationToken>());
         harness.AuditLog.Records.ShouldContain(r => r.Disposition == "thread-created");
     }

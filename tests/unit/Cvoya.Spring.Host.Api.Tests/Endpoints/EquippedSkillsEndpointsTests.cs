@@ -61,7 +61,7 @@ public class EquippedSkillsEndpointsTests : IClassFixture<CustomWebApplicationFa
     private void ArrangeDirectoryHit(string scheme, Guid actorId)
     {
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == scheme && a.Path == actorId.ToString("N")), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == scheme && a.Path == actorId.ToString("N"))), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 Address: Address.For(scheme, actorId.ToString("N")),
                 ActorId: actorId,
@@ -74,7 +74,7 @@ public class EquippedSkillsEndpointsTests : IClassFixture<CustomWebApplicationFa
     private void ArrangeDirectoryMiss(string scheme)
     {
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == scheme), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == scheme)), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
     }
 
@@ -150,7 +150,7 @@ public class EquippedSkillsEndpointsTests : IClassFixture<CustomWebApplicationFa
 
         await _factory.UnitSkillBundleStore.Received(1)
             .AddAsync(unitId.ToString("N"),
-                Arg.Is<SkillBundleReference>(r => r.Package == "pkg-x" && r.Skill == "skill-x"),
+                Arg.Is(ArgMatchers.Matching<SkillBundleReference>(r => r.Package == "pkg-x" && r.Skill == "skill-x")),
                 Arg.Any<CancellationToken>());
     }
 
@@ -264,7 +264,7 @@ public class EquippedSkillsEndpointsTests : IClassFixture<CustomWebApplicationFa
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.AgentSkillBundleStore.Received(1).AddAsync(
             agentId.ToString("N"),
-            Arg.Is<SkillBundleReference>(r => r.Package == "pkg-z" && r.Skill == "skill-z"),
+            Arg.Is(ArgMatchers.Matching<SkillBundleReference>(r => r.Package == "pkg-z" && r.Skill == "skill-z")),
             Arg.Any<CancellationToken>());
     }
 

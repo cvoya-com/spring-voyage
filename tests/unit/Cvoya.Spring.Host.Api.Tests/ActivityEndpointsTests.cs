@@ -75,11 +75,11 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         result.Items.Count().ShouldBe(1);
 
         await _factory.ActivityQueryService.Received(1).QueryAsync(
-            Arg.Is<ActivityQueryParameters>(p =>
+            Arg.Is(ArgMatchers.Matching<ActivityQueryParameters>(p =>
                 p.Source == "agent://test" &&
                 p.EventType == "TaskCompleted" &&
                 p.Page == 1 &&
-                p.PageSize == 10),
+                p.PageSize == 10)),
             Arg.Any<CancellationToken>());
     }
 

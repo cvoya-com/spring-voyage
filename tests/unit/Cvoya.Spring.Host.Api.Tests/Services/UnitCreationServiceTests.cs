@@ -121,9 +121,9 @@ public class UnitCreationServiceTests
 
         await fixture.Proxy.Received(1).SetHumanPermissionAsync(
             humanGuid,
-            Arg.Is<UnitPermissionEntry>(e =>
+            Arg.Is(ArgMatchers.Matching<UnitPermissionEntry>(e =>
                 e.HumanId == humanGuid.ToString()
-                && e.Permission == PermissionLevel.Owner),
+                && e.Permission == PermissionLevel.Owner)),
             Arg.Any<CancellationToken>());
     }
 
@@ -267,7 +267,7 @@ public class UnitCreationServiceTests
         {
             fixture.Directory
                 .ResolveAsync(
-                    Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == entry.ActorId),
+                    Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == entry.ActorId)),
                     Arg.Any<CancellationToken>())
                 .Returns(entry);
         }
@@ -286,13 +286,13 @@ public class UnitCreationServiceTests
         // Each agent member reaches EF via the actor surface — the proxy
         // call is the only write the service issues.
         await fixture.Proxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == techLeadUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == techLeadUuid)),
             Arg.Any<CancellationToken>());
         await fixture.Proxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == backendUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == backendUuid)),
             Arg.Any<CancellationToken>());
         await fixture.Proxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == qaUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == qaUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -316,7 +316,7 @@ public class UnitCreationServiceTests
         result.MembersAdded.ShouldBe(1);
 
         await fixture.Proxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit"),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit")),
             Arg.Any<CancellationToken>());
     }
 
@@ -346,15 +346,15 @@ public class UnitCreationServiceTests
         // an agent-scheme entry whose DisplayName carries the slug. Three
         // distinct agent registrations land per call.
         await fixture.Directory.Received(3).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.Address.Scheme == "agent")),
             Arg.Any<CancellationToken>());
         foreach (var m in members)
         {
             await fixture.Directory.Received().RegisterAsync(
-                Arg.Is<DirectoryEntry>(e =>
+                Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
                     e.Address.Scheme == "agent"
                     && e.DisplayName == m.AgentName
-                    && e.Description == string.Empty),
+                    && e.Description == string.Empty)),
                 Arg.Any<CancellationToken>());
         }
     }
@@ -382,7 +382,7 @@ public class UnitCreationServiceTests
             .Returns(new List<DirectoryEntry> { existingEntry });
         fixture.Directory
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_TechLead_Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == Agent_TechLead_Id)),
                 Arg.Any<CancellationToken>())
             .Returns(existingEntry);
 
@@ -400,12 +400,12 @@ public class UnitCreationServiceTests
         // backend-engineer resolved as null (default) so it gets registered:
         // exactly one agent-scheme RegisterAsync call should occur.
         await fixture.Directory.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.Address.Scheme == "agent")),
             Arg.Any<CancellationToken>());
         await fixture.Directory.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
                 e.Address.Scheme == "agent"
-                && e.DisplayName == "backend-engineer"),
+                && e.DisplayName == "backend-engineer")),
             Arg.Any<CancellationToken>());
     }
 
@@ -702,9 +702,9 @@ public class UnitCreationServiceTests
             CancellationToken.None);
 
         await fixture.Proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m =>
+            Arg.Is(ArgMatchers.Matching<UnitMetadata>(m =>
                 m.Hosting == "ephemeral"
-                && m.Model == "llama3.2:3b"),
+                && m.Model == "llama3.2:3b")),
             Arg.Any<CancellationToken>());
     }
 }

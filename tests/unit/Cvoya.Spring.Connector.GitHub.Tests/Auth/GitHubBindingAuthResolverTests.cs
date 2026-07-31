@@ -44,7 +44,7 @@ public class GitHubBindingAuthResolverTests
                 Arg.Any<CancellationToken>())
             .Returns(call =>
             {
-                var mint = call.Arg<Func<long, CancellationToken, Task<InstallationAccessToken>>>();
+                var mint = call.Arg<Func<long, CancellationToken, Task<InstallationAccessToken>>>()!;
                 return mint(42L, CancellationToken.None);
             });
 
@@ -68,10 +68,10 @@ public class GitHubBindingAuthResolverTests
         var secretResolver = Substitute.For<ISecretResolver>();
         secretResolver
             .ResolveWithPathAsync(
-                Arg.Is<SecretRef>(r =>
+                Arg.Is(ArgMatchers.Matching<SecretRef>(r =>
                     r.Scope == SecretScope.Tenant
                     && r.OwnerId == TenantId
-                    && r.Name == "binding/abc/github/pat"),
+                    && r.Name == "binding/abc/github/pat")),
                 Arg.Any<CancellationToken>())
             .Returns(new SecretResolution(
                 Value: "ghp_personal-access-token",
@@ -134,7 +134,7 @@ public class GitHubBindingAuthResolverTests
                 Arg.Any<CancellationToken>())
             .Returns(call =>
             {
-                var mint = call.Arg<Func<long, CancellationToken, Task<InstallationAccessToken>>>();
+                var mint = call.Arg<Func<long, CancellationToken, Task<InstallationAccessToken>>>()!;
                 return mint(42L, CancellationToken.None);
             });
 
@@ -189,7 +189,7 @@ public class GitHubBindingAuthResolverTests
                 Arg.Any<CancellationToken>())
             .Returns(call =>
             {
-                var mint = call.Arg<Func<long, CancellationToken, Task<InstallationAccessToken>>>();
+                var mint = call.Arg<Func<long, CancellationToken, Task<InstallationAccessToken>>>()!;
                 return mint(42L, CancellationToken.None);
             });
         var resolver = BuildResolver(auth, cache);

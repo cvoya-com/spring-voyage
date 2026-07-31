@@ -87,10 +87,10 @@ public class AgentActorEffectiveMetadataTests
 
         // Wire directory service to resolve unit addresses → directory entries.
         _directoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitAUuid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitAUuid)), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(new Address("unit", UnitAUuid), UnitAUuid, "unit-a", string.Empty, null, DateTimeOffset.UtcNow));
         _directoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitBUuid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitBUuid)), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(new Address("unit", UnitBUuid), UnitBUuid, "unit-b", string.Empty, null, DateTimeOffset.UtcNow));
         // Unknown units → null by default (NSubstitute returns null for unmatched reference-type calls).
 
@@ -171,11 +171,11 @@ public class AgentActorEffectiveMetadataTests
         await _actor.PendingDispatchTask!;
 
         await _dispatcher.Received(1).DispatchAsync(
-            Arg.Is<Message>(m => m.Id == message.Id),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<Message>(m => m.Id == message.Id)),
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
                 ctx.EffectiveMetadata != null &&
-                ctx.EffectiveMetadata.Model == "gpt-4"),
+                ctx.EffectiveMetadata.Model == "gpt-4")),
             Arg.Any<CancellationToken>());
     }
 
@@ -200,16 +200,16 @@ public class AgentActorEffectiveMetadataTests
 
         // No per-thread channel was written either — the agent remained idle.
         await _stateManager.DidNotReceive().SetStateAsync(
-            Arg.Is<string>(k => k.StartsWith(StateKeys.ChannelPrefix)),
+            Arg.Is(ArgMatchers.Matching<string>(k => k.StartsWith(StateKeys.ChannelPrefix))),
             Arg.Any<ThreadChannel>(),
             Arg.Any<CancellationToken>());
 
         // Operators need to be able to see this as a DecisionMade with a
         // membership-disabled reason — otherwise silent skips are invisible.
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.DecisionMade &&
-                e.Summary.Contains("membership disabled")),
+                e.Summary.Contains("membership disabled"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -228,10 +228,10 @@ public class AgentActorEffectiveMetadataTests
 
         await _dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
                 ctx.EffectiveMetadata != null &&
-                ctx.EffectiveMetadata.Specialty == "reviewer"),
+                ctx.EffectiveMetadata.Specialty == "reviewer")),
             Arg.Any<CancellationToken>());
     }
 
@@ -254,10 +254,10 @@ public class AgentActorEffectiveMetadataTests
 
         await _dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
                 ctx.EffectiveMetadata != null &&
-                ctx.EffectiveMetadata.ExecutionMode == AgentExecutionMode.OnDemand),
+                ctx.EffectiveMetadata.ExecutionMode == AgentExecutionMode.OnDemand)),
             Arg.Any<CancellationToken>());
     }
 
@@ -279,11 +279,11 @@ public class AgentActorEffectiveMetadataTests
 
         await _dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
                 ctx.EffectiveMetadata != null &&
                 ctx.EffectiveMetadata.Model == "claude-3-opus" &&
-                ctx.EffectiveMetadata.Specialty == "generalist"),
+                ctx.EffectiveMetadata.Specialty == "generalist")),
             Arg.Any<CancellationToken>());
     }
 
@@ -304,10 +304,10 @@ public class AgentActorEffectiveMetadataTests
 
         await _dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
                 ctx.EffectiveMetadata != null &&
-                ctx.EffectiveMetadata.Model == "claude-3-haiku"),
+                ctx.EffectiveMetadata.Model == "claude-3-haiku")),
             Arg.Any<CancellationToken>());
     }
 
@@ -372,9 +372,9 @@ public class AgentActorEffectiveMetadataTests
         await _actor.PendingDispatchTask!;
 
         await _dispatcher.Received(1).DispatchAsync(
-            Arg.Is<Message>(m => m.Id == msgA.Id),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
-                ctx != null && ctx.EffectiveMetadata != null && ctx.EffectiveMetadata.Model == "gpt-4"),
+            Arg.Is(ArgMatchers.Matching<Message>(m => m.Id == msgA.Id)),
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
+                ctx != null && ctx.EffectiveMetadata != null && ctx.EffectiveMetadata.Model == "gpt-4")),
             Arg.Any<CancellationToken>());
 
         // Turn 2: unit-b sends conv-b. Per #2076 / ADR-0030 §44 conv-b
@@ -386,9 +386,9 @@ public class AgentActorEffectiveMetadataTests
         await _actor.PendingDispatchTask!;
 
         await _dispatcher.Received(1).DispatchAsync(
-            Arg.Is<Message>(m => m.Id == msgB.Id),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
-                ctx != null && ctx.EffectiveMetadata != null && ctx.EffectiveMetadata.Model == "claude-3-5-sonnet"),
+            Arg.Is(ArgMatchers.Matching<Message>(m => m.Id == msgB.Id)),
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
+                ctx != null && ctx.EffectiveMetadata != null && ctx.EffectiveMetadata.Model == "claude-3-5-sonnet")),
             Arg.Any<CancellationToken>());
     }
 
@@ -409,10 +409,10 @@ public class AgentActorEffectiveMetadataTests
         // normal message handling. The fallback is the agent's global config.
         await _dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
                 ctx.EffectiveMetadata != null &&
-                ctx.EffectiveMetadata.Model == "claude-3-opus"),
+                ctx.EffectiveMetadata.Model == "claude-3-opus")),
             Arg.Any<CancellationToken>());
     }
 

@@ -284,10 +284,10 @@ public class LlmDispatcherTests
         body.ShouldBe(responseBytes);
 
         dispatcher.Received(1).SendStreamingAsync(
-            Arg.Is<LlmDispatchRequest>(r =>
+            Arg.Is(ArgMatchers.Matching<LlmDispatchRequest>(r =>
                 r.Url == "http://upstream/v1/messages"
                 && Encoding.UTF8.GetString(r.Body) == "{\"model\":\"claude\"}"
-                && r.Headers!.ContainsKey("x-api-key")),
+                && r.Headers!.ContainsKey("x-api-key"))),
             Arg.Any<CancellationToken>());
     }
 

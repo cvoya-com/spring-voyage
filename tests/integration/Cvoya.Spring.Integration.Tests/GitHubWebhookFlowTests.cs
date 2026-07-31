@@ -116,10 +116,10 @@ public class GitHubWebhookFlowTests
         result.ShouldNotBeNull();
         await agentStateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + "webhook-conv-1",
-            Arg.Is<ThreadChannel>(c =>
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c =>
                 c.ThreadId == "webhook-conv-1" &&
                 c.Messages.Count == 1 &&
-                c.Messages[0].Payload.GetProperty("EventType").GetString() == "pull_request"),
+                c.Messages[0].Payload.GetProperty("EventType").GetString() == "pull_request")),
             Arg.Any<CancellationToken>());
     }
 }

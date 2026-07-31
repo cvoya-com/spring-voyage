@@ -72,7 +72,7 @@ public class AgentActorAmendmentTests
 
         // Wire directory service: unit address → its directory entry.
         _directoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitActorUuid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitActorUuid)), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address("unit", UnitActorUuid),
                 UnitActorUuid,
@@ -169,10 +169,10 @@ public class AgentActorAmendmentTests
 
         await _stateManager.Received().SetStateAsync(
             StateKeys.AgentPendingAmendments,
-            Arg.Is<List<PendingAmendment>>(list => list.Count == 1 && list[0].Id == message.Id),
+            Arg.Is(ArgMatchers.Matching<List<PendingAmendment>>(list => list.Count == 1 && list[0].Id == message.Id)),
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentReceived),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentReceived)),
             Arg.Any<CancellationToken>());
     }
 
@@ -190,7 +190,7 @@ public class AgentActorAmendmentTests
             Arg.Any<List<PendingAmendment>>(),
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected)),
             Arg.Any<CancellationToken>());
     }
 
@@ -206,7 +206,7 @@ public class AgentActorAmendmentTests
             Arg.Any<List<PendingAmendment>>(),
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentReceived),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentReceived)),
             Arg.Any<CancellationToken>());
     }
 
@@ -221,7 +221,7 @@ public class AgentActorAmendmentTests
             Arg.Any<List<PendingAmendment>>(),
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected)),
             Arg.Any<CancellationToken>());
     }
 
@@ -239,7 +239,7 @@ public class AgentActorAmendmentTests
             Arg.Any<List<PendingAmendment>>(),
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected)),
             Arg.Any<CancellationToken>());
     }
 
@@ -262,7 +262,7 @@ public class AgentActorAmendmentTests
             Arg.Any<List<PendingAmendment>>(),
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.AmendmentRejected)),
             Arg.Any<CancellationToken>());
     }
 
@@ -313,10 +313,10 @@ public class AgentActorAmendmentTests
 
         await _stateManager.Received().SetStateAsync(
             StateKeys.AgentPendingAmendments,
-            Arg.Is<List<PendingAmendment>>(list =>
+            Arg.Is(ArgMatchers.Matching<List<PendingAmendment>>(list =>
                 list.Count == 2 &&
                 list[0].Id == existing.Id &&
-                list[1].Id == message.Id),
+                list[1].Id == message.Id)),
             Arg.Any<CancellationToken>());
     }
 }

@@ -158,7 +158,7 @@ public class UnitPolicyRealPermissionServiceTests
     {
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.UnitScheme && a.Id == unitId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.UnitScheme && a.Id == unitId)),
                 Arg.Any<CancellationToken>())
             .Returns(_ => new DirectoryEntry(
                 new Address(Address.UnitScheme, unitId),

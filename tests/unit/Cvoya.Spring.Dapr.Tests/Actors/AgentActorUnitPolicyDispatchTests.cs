@@ -89,7 +89,7 @@ public class AgentActorUnitPolicyDispatchTests
         // Wire directory service: unit Guid → directory entry.
         _directoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitId)),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address("unit", UnitId),
@@ -156,9 +156,9 @@ public class AgentActorUnitPolicyDispatchTests
             Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>());
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.DecisionMade &&
-                e.Summary.Contains("Model 'gpt-4' is blocked")),
+                e.Summary.Contains("Model 'gpt-4' is blocked"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -228,9 +228,9 @@ public class AgentActorUnitPolicyDispatchTests
             Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>());
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.DecisionMade &&
-                e.Summary.Contains("Hourly spend")),
+                e.Summary.Contains("Hourly spend"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -268,10 +268,10 @@ public class AgentActorUnitPolicyDispatchTests
 
         await _dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
                 ctx.EffectiveMetadata != null &&
-                ctx.EffectiveMetadata.ExecutionMode == AgentExecutionMode.OnDemand),
+                ctx.EffectiveMetadata.ExecutionMode == AgentExecutionMode.OnDemand)),
             Arg.Any<CancellationToken>());
     }
 

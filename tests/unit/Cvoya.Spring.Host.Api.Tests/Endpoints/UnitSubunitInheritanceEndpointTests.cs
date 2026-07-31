@@ -101,7 +101,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         // check rejects — otherwise the projection would persist a sub-
         // unit edge for a config the dispatch path would refuse later.
         await parentBProxy.DidNotReceive().AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit"),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit")),
             Arg.Any<CancellationToken>());
     }
 
@@ -136,7 +136,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await parentBProxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -198,7 +198,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await parentBProxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ChildUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == ChildUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -222,7 +222,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await parentAProxy.Received(1).RemoveMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -246,10 +246,10 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await parentAProxy.Received(1).RemoveMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ChildUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == ChildUuid)),
             Arg.Any<CancellationToken>());
         await parentAProxy.DidNotReceive().RemoveMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -281,7 +281,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await parentAProxy.Received(1).RemoveMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ChildUuid)),
             Arg.Any<CancellationToken>());
     }
 
@@ -370,7 +370,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == uuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == uuid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -384,7 +384,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         var proxy = Substitute.For<IUnitActor>();
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == uuid.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == uuid.ToString("N"))),
                 Arg.Any<string>())
             .Returns(proxy);
         return proxy;
@@ -413,7 +413,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == uuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.AgentScheme && a.Id == uuid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
     }

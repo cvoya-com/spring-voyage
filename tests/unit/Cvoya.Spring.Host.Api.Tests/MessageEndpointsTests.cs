@@ -55,7 +55,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         // Directory returns null for this address, so routing fails with ADDRESS_NOT_FOUND.
         _factory.DirectoryService.ResolveAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == UnknownAgentId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == UnknownAgentId)),
             Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
@@ -105,7 +105,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == TestAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == TestAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -114,7 +114,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 TestAgentId.ToString("N"))
             .Returns(agent);
 
@@ -153,7 +153,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ConvAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == ConvAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -162,7 +162,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 ConvAgentId.ToString("N"))
             .Returns(agent);
 
@@ -201,7 +201,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == PassthroughAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == PassthroughAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -210,7 +210,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 PassthroughAgentId.ToString("N"))
             .Returns(agent);
 
@@ -266,7 +266,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ForbiddenUnitId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ForbiddenUnitId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -282,7 +282,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // the destination actor must not receive a forbidden message.
         var unit = Substitute.For<IAgent>();
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase))),
                 ForbiddenUnitId.ToString("N"))
             .Returns(unit);
 
@@ -336,7 +336,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == EngineeringTeamId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == EngineeringTeamId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -356,7 +356,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         unit.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase))),
                 EngineeringTeamId.ToString("N"))
             .Returns(unit);
 
@@ -394,7 +394,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == PingAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == PingAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -403,7 +403,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 PingAgentId.ToString("N"))
             .Returns(agent);
 
@@ -442,7 +442,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ValidatingAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == ValidatingAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -452,7 +452,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 CallerValidationCodes.MissingThreadId,
                 "Domain messages must have a ThreadId"));
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 ValidatingAgentId.ToString("N"))
             .Returns(agent);
 
@@ -489,7 +489,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == StrictAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == StrictAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -499,7 +499,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 CallerValidationCodes.UnknownMessageType,
                 "Unknown message type: Amendment"));
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 StrictAgentId.ToString("N"))
             .Returns(agent);
 
@@ -536,7 +536,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == RemotedAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == RemotedAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -548,7 +548,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns<Task<Message?>>(_ => throw new InvalidOperationException(encodedMessage));
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 RemotedAgentId.ToString("N"))
             .Returns(agent);
 
@@ -590,7 +590,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == NonGuidThreadAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == NonGuidThreadAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -634,7 +634,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == UnknownThreadAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == UnknownThreadAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -673,7 +673,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == FlakyAgentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == FlakyAgentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -681,7 +681,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns<Task<Message?>>(_ => throw new InvalidOperationException("Database unavailable"));
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))),
                 FlakyAgentId.ToString("N"))
             .Returns(agent);
 
@@ -720,7 +720,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -803,10 +803,10 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var agentEntry = new DirectoryEntry(
             new Address("agent", agentId), agentId, "Fact Checker", "Agent", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitId), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitId)), Arg.Any<CancellationToken>())
             .Returns(unitEntry);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)), Arg.Any<CancellationToken>())
             .Returns(agentEntry);
 
         // Grant the operator Viewer on the unit so the endpoint precheck and
@@ -824,10 +824,10 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         agent.ReceiveAsync(Arg.Do<Message>(m => agentMsg = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase)), unitId.ToString("N"))
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase))), unitId.ToString("N"))
             .Returns(unit);
         _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)), agentId.ToString("N"))
+            .Resolve(Arg.Is(ArgMatchers.Matching<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase))), agentId.ToString("N"))
             .Returns(agent);
 
         var request = new SendMessageRequest(

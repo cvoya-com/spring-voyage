@@ -67,7 +67,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         // Allow subsequent GET to resolve the entry we just registered.
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == UnitName)), Arg.Any<CancellationToken>())
             .Returns(ci => new DirectoryEntry(
                 new Address("unit", ActorId_Guid),
                 ActorId_Guid,
@@ -84,7 +84,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
         createResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         await proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m => m.Model == "claude-opus-4" && m.Color == "#336699"),
+            Arg.Is(ArgMatchers.Matching<UnitMetadata>(m => m.Model == "claude-opus-4" && m.Color == "#336699")),
             Arg.Any<CancellationToken>());
 
         // GET should surface the new fields from actor metadata.
@@ -120,7 +120,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
         patchResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         await proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m => m.Model == "gpt-4o-mini" && m.Color == "#ff00aa"),
+            Arg.Is(ArgMatchers.Matching<UnitMetadata>(m => m.Model == "gpt-4o-mini" && m.Color == "#ff00aa")),
             Arg.Any<CancellationToken>());
 
         var body = await patchResponse.Content.ReadAsStringAsync(ct);
@@ -149,11 +149,11 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         // The forwarded metadata record must carry Model only; other fields stay null.
         await proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m =>
+            Arg.Is(ArgMatchers.Matching<UnitMetadata>(m =>
                 m.Model == "gpt-4o" &&
                 m.Color == null &&
                 m.DisplayName == null &&
-                m.Description == null),
+                m.Description == null)),
             Arg.Any<CancellationToken>());
     }
 
@@ -192,7 +192,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         // DisplayName/Description must be forwarded to the directory, not persisted on the actor.
         await _factory.DirectoryService.Received(1).UpdateEntryAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == UnitName)),
             "Eng Team",
             "Builds stuff",
             Arg.Any<string?>(),
@@ -200,9 +200,9 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         // Actor is still invoked so the audit-trail StateChanged event is emitted (#123).
         await proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m =>
+            Arg.Is(ArgMatchers.Matching<UnitMetadata>(m =>
                 m.DisplayName == "Eng Team" &&
-                m.Description == "Builds stuff"),
+                m.Description == "Builds stuff")),
             Arg.Any<CancellationToken>());
 
         var body = await patchResponse.Content.ReadAsStringAsync(ct);
@@ -272,7 +272,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         // #2341: Role is directory-owned, same split as DisplayName/Description.
         await _factory.DirectoryService.Received(1).UpdateEntryAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == UnitName)),
             null,
             null,
             "backend-team",
@@ -327,10 +327,10 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         // #2341: the parity slots ride the actor metadata path.
         await proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m =>
+            Arg.Is(ArgMatchers.Matching<UnitMetadata>(m =>
                 m.Specialty == "reviewer" &&
                 m.Enabled == false &&
-                m.ExecutionMode == Cvoya.Spring.Core.Agents.AgentExecutionMode.OnDemand),
+                m.ExecutionMode == Cvoya.Spring.Core.Agents.AgentExecutionMode.OnDemand)),
             Arg.Any<CancellationToken>());
 
         // No directory write — these are all actor-owned slots.
@@ -379,11 +379,11 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
             DateTimeOffset.UtcNow);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid)), Arg.Any<CancellationToken>())
             .Returns(entry);
 
         _factory.ActorProxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId), Arg.Any<string>())
+            .CreateActorProxy<IUnitActor>(Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == ActorId)), Arg.Any<string>())
             .Returns(proxy);
     }
 

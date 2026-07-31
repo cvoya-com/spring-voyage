@@ -52,10 +52,10 @@ public class StreamEventSubscriberTests
         await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.Source.Path == AgentHex &&
                 e.EventType == ActivityEventType.TokenDelta &&
-                e.Summary == "Hello"),
+                e.Summary == "Hello")),
             Arg.Any<CancellationToken>());
     }
 
@@ -74,9 +74,9 @@ public class StreamEventSubscriberTests
         await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.Source.Scheme == "agent" &&
-                e.Source.Path == MyAgentHex),
+                e.Source.Path == MyAgentHex)),
             Arg.Any<CancellationToken>());
     }
 
@@ -99,10 +99,10 @@ public class StreamEventSubscriberTests
         await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ToolCall &&
                 e.Summary == "Tool call: github.create_pr" &&
-                e.CorrelationId == "call-abc"),
+                e.CorrelationId == "call-abc")),
             Arg.Any<CancellationToken>());
     }
 
@@ -126,11 +126,11 @@ public class StreamEventSubscriberTests
         await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ToolResult &&
                 e.Severity == ActivitySeverity.Info &&
                 e.CorrelationId == "call-abc" &&
-                e.Summary == "Tool result: github.create_pr"),
+                e.Summary == "Tool result: github.create_pr")),
             Arg.Any<CancellationToken>());
     }
 
@@ -154,10 +154,10 @@ public class StreamEventSubscriberTests
         await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ToolResult &&
                 e.Severity == ActivitySeverity.Warning &&
-                e.Summary == "Tool result (error): github.create_pr"),
+                e.Summary == "Tool result (error): github.create_pr")),
             Arg.Any<CancellationToken>());
     }
 }

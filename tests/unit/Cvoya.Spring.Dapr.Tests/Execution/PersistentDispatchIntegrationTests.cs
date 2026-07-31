@@ -458,7 +458,7 @@ public class PersistentDispatchIntegrationTests
 
         // Container was NOT torn down or restarted.
         await _containerRuntime.DidNotReceive().StopAsync(
-            Arg.Is<string>(id => id == "healthy-container"), Arg.Any<CancellationToken>());
+            Arg.Is(ArgMatchers.Matching<string>(id => id == "healthy-container")), Arg.Any<CancellationToken>());
         await _containerRuntime.DidNotReceive().StartAsync(
             Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
 

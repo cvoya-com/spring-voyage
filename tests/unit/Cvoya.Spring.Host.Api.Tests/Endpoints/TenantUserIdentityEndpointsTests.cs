@@ -533,7 +533,7 @@ public class TenantUserIdentityEndpointsTests : IClassFixture<CustomWebApplicati
         // Only hatA can reach unitA.
         _factory.HatReachability.GetWearableHatsAsync(
                 Arg.Any<Guid>(),
-                Arg.Is<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == unitA)),
+                Arg.Is(ArgMatchers.Matching<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == unitA))),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Guid>>(new[] { hatA }));
 

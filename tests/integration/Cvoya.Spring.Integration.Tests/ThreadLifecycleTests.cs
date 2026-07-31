@@ -37,7 +37,7 @@ public class ThreadLifecycleTests
         // batch size recorded (one message here).
         await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 1 && c.Dispatching && c.InFlightCount == 1),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 1 && c.Dispatching && c.InFlightCount == 1)),
             Arg.Any<CancellationToken>());
 
         // Simulate state with the channel mid-drain.
@@ -57,7 +57,7 @@ public class ThreadLifecycleTests
 
         await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 2),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 2)),
             Arg.Any<CancellationToken>());
     }
 
@@ -86,7 +86,7 @@ public class ThreadLifecycleTests
 
         await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadB,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadB && c.Dispatching),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadB && c.Dispatching)),
             Arg.Any<CancellationToken>());
     }
 

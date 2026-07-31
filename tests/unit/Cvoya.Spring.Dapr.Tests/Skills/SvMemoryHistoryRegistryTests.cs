@@ -122,8 +122,8 @@ public class SvMemoryHistoryRegistryTests
             AgentContext(callerId), TestContext.Current.CancellationToken);
 
         await _queryService.Received(1).ListAsync(
-            Arg.Is<ThreadQueryFilters>(f =>
-                f.Participant == caller.ToString() && f.Limit == 20),
+            Arg.Is(ArgMatchers.Matching<ThreadQueryFilters>(f =>
+                f.Participant == caller.ToString() && f.Limit == 20)),
             Arg.Any<CancellationToken>());
 
         json.GetProperty("engagements").GetArrayLength().ShouldBe(1);
@@ -146,9 +146,9 @@ public class SvMemoryHistoryRegistryTests
         var resolvedThread = GuidFormatter.Format(Guid.NewGuid());
 
         _threadRegistry.GetOrCreateAsync(
-                Arg.Is<IEnumerable<Address>>(p =>
+                Arg.Is(ArgMatchers.Matching<IEnumerable<Address>>(p =>
                     p.Any(a => a.ToString() == caller.ToString())
-                    && p.Any(a => a.ToString() == other.ToString())),
+                    && p.Any(a => a.ToString() == other.ToString()))),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(resolvedThread));
 
@@ -330,9 +330,9 @@ public class SvMemoryHistoryRegistryTests
         var resolvedThread = GuidFormatter.Format(Guid.NewGuid());
 
         _threadRegistry.GetOrCreateAsync(
-                Arg.Is<IEnumerable<Address>>(p =>
+                Arg.Is(ArgMatchers.Matching<IEnumerable<Address>>(p =>
                     p.Any(a => a.ToString() == caller.ToString())
-                    && p.Any(a => a.ToString() == other.ToString())),
+                    && p.Any(a => a.ToString() == other.ToString()))),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(resolvedThread));
 
@@ -381,10 +381,10 @@ public class SvMemoryHistoryRegistryTests
 
         await _queryService.Received(1).GetMessagesByIdsAsync(
             caller.ToString(),
-            Arg.Is<IReadOnlyList<string>>(ids =>
+            Arg.Is(ArgMatchers.Matching<IReadOnlyList<string>>(ids =>
                 ids.Count == 2
                 && ids[0] == GuidFormatter.Format(foundId)
-                && ids[1] == "deadbeef"),
+                && ids[1] == "deadbeef")),
             Arg.Any<CancellationToken>());
 
         var messages = json.GetProperty("messages");

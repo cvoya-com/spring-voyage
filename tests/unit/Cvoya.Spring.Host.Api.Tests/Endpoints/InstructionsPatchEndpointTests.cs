@@ -225,7 +225,7 @@ public class InstructionsPatchEndpointTests : IClassFixture<CustomWebApplication
 
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == id),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == id)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
         var actorProxy = Substitute.For<IAgentActor>();
@@ -233,7 +233,7 @@ public class InstructionsPatchEndpointTests : IClassFixture<CustomWebApplication
             .Returns(new AgentMetadata());
         _factory.ActorProxyFactory
             .CreateActorProxy<IAgentActor>(
-                Arg.Is<ActorId>(a => a.GetId() == id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == id.ToString("N"))),
                 Arg.Any<string>())
             .Returns(actorProxy);
 
@@ -261,7 +261,7 @@ public class InstructionsPatchEndpointTests : IClassFixture<CustomWebApplication
 
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == id),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == id)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
         var actorProxy = Substitute.For<IUnitActor>();
@@ -271,7 +271,7 @@ public class InstructionsPatchEndpointTests : IClassFixture<CustomWebApplication
             .Returns(new UnitMetadata(null, null, null, null));
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == id.ToString("N"))),
                 Arg.Any<string>())
             .Returns(actorProxy);
 

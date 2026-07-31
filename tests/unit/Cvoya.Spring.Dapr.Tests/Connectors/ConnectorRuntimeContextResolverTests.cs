@@ -96,10 +96,10 @@ public class ConnectorRuntimeContextResolverTests
         _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(ConnectorAId, JsonSerializer.SerializeToElement(new { repo = "parent" })));
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Unit1)), Arg.Any<CancellationToken>())
             .Returns([new Address(Address.UnitScheme, ParentUnit)]);
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ParentUnit)), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var contributor = new RecordingContributor(ConnectorAId, "connector-a",
@@ -129,10 +129,10 @@ public class ConnectorRuntimeContextResolverTests
         _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(ConnectorAId, JsonSerializer.SerializeToElement(new { repo = "parent" })));
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Unit1)), Arg.Any<CancellationToken>())
             .Returns([new Address(Address.UnitScheme, ParentUnit)]);
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ParentUnit)), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var contributor = new RecordingContributor(ConnectorAId, "connector-a",
@@ -157,10 +157,10 @@ public class ConnectorRuntimeContextResolverTests
         _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(ConnectorBId, JsonSerializer.SerializeToElement(new { })));
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Unit1)), Arg.Any<CancellationToken>())
             .Returns([new Address(Address.UnitScheme, ParentUnit)]);
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ParentUnit)), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var contribA = new RecordingContributor(ConnectorAId, "connector-a",
@@ -341,10 +341,10 @@ public class ConnectorRuntimeContextResolverTests
         _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(ConnectorBId, JsonSerializer.SerializeToElement(new { })));
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == Unit1)), Arg.Any<CancellationToken>())
             .Returns([new Address(Address.UnitScheme, ParentUnit)]);
         _hierarchyResolver.GetParentsAsync(
-                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ParentUnit)), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var contribA = new RecordingContributor(ConnectorAId, "connector-a",

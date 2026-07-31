@@ -321,7 +321,7 @@ public class MessageRouterTests
 
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
         _permissionService.ResolveEffectivePermissionAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanAuthorisedId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanAuthorisedId)),
                 UnitOneId,
                 Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Operator);
@@ -346,7 +346,7 @@ public class MessageRouterTests
 
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
         _permissionService.ResolveEffectivePermissionAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId)),
                 UnitOneId,
                 Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
@@ -535,7 +535,7 @@ public class MessageRouterTests
 
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
         _permissionService.ResolveEffectivePermissionAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId)),
                 UnitOneId,
                 Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
@@ -637,7 +637,7 @@ public class MessageRouterTests
 
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(resolvedAsUnit);
         _permissionService.ResolveEffectivePermissionAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId)),
                 UnitOneId,
                 Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);

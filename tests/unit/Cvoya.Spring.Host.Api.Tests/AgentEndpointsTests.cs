@@ -125,9 +125,9 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.Headers.Location!.ToString().ShouldContain("/api/v1/tenant/agents/");
 
         await _factory.DirectoryService.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
                 e.Address.Scheme == "agent" &&
-                e.DisplayName == "New Agent"),
+                e.DisplayName == "New Agent")),
             Arg.Any<CancellationToken>());
 
         // Verify the membership row was written. Agent UUID is assigned by
@@ -158,9 +158,9 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.ShouldNotBeNull();
 
         await _factory.DirectoryService.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
                 e.Address.Scheme == "agent" &&
-                e.DisplayName == "Orphan"),
+                e.DisplayName == "Orphan")),
             Arg.Any<CancellationToken>());
 
         using var scope = _factory.Services.CreateScope();
@@ -199,9 +199,9 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // expects on disk.
         await _factory.AgentSkillBundleStore.Received(1).AddAsync(
             Arg.Any<string>(),
-            Arg.Is<Cvoya.Spring.Core.Skills.SkillBundleReference>(r =>
+            Arg.Is(ArgMatchers.Matching<Cvoya.Spring.Core.Skills.SkillBundleReference>(r =>
                 r.Package == Cvoya.Spring.Core.Skills.DefaultAgentSkillBundles.ConversationalDefaults.Package &&
-                r.Skill == Cvoya.Spring.Core.Skills.DefaultAgentSkillBundles.ConversationalDefaults.Skill),
+                r.Skill == Cvoya.Spring.Core.Skills.DefaultAgentSkillBundles.ConversationalDefaults.Skill)),
             Arg.Any<CancellationToken>());
     }
 
@@ -274,7 +274,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.Address.Scheme == "agent")),
             Arg.Any<CancellationToken>());
     }
 
@@ -289,14 +289,14 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == actorId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == actorId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
         var proxy = Substitute.For<IUnitActor>();
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorId.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorId.ToString("N"))),
                 Arg.Any<string>())
             .Returns(proxy);
     }
@@ -624,7 +624,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // Conflict short-circuits before any side effect: nothing was
         // registered in the directory and no membership rows were written.
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e => e.Address.Scheme == "agent")),
             Arg.Any<CancellationToken>());
         using var scope = _factory.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
@@ -682,9 +682,9 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.Headers.Location!.ToString().ShouldContain("/api/v1/tenant/agents/");
 
         await _factory.DirectoryService.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
+            Arg.Is(ArgMatchers.Matching<DirectoryEntry>(e =>
                 e.Address.Scheme == "agent" &&
-                e.DisplayName == "Resolved Agent"),
+                e.DisplayName == "Resolved Agent")),
             Arg.Any<CancellationToken>());
     }
 
@@ -713,7 +713,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         var ghost = Guid.NewGuid();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Id == ghost), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Id == ghost)), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.GetAsync(
@@ -889,7 +889,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         _factory.ToolGrantResolver
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentId)),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Cvoya.Spring.Core.Skills.EffectiveTool>>(
                 new[]
@@ -938,7 +938,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         _factory.ToolGrantResolver
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentId)),
                 Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<Cvoya.Spring.Core.Skills.EffectiveTool>>(
                 _ => throw new InvalidOperationException("resolver down"));
@@ -1167,7 +1167,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
     }
@@ -1184,7 +1184,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 ObservedAt: DateTimeOffset.UtcNow));
         _factory.ActorProxyFactory
             .CreateActorProxy<IAgentActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorIdString),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorIdString)),
                 Arg.Any<string>())
             .Returns(proxy);
         return proxy;
@@ -1215,7 +1215,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ExecutionHostGateway.ClearReceivedCalls();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address("agent", agentId),
                 agentId,
@@ -1230,7 +1230,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await _factory.ExecutionHostGateway.Received(1)
             .UndeployAsync(actorIdString, Arg.Any<CancellationToken>());
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)),
             Arg.Any<CancellationToken>());
     }
 
@@ -1249,7 +1249,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ExecutionHostGateway.ClearReceivedCalls();
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address("agent", agentId),
                 agentId,
@@ -1265,7 +1265,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await _factory.DirectoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == agentId)),
             Arg.Any<CancellationToken>());
     }
 }

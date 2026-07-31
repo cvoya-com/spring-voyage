@@ -147,7 +147,7 @@ public class DaprSidecarManagerTests
         var info = await manager.StartSidecarAsync(config, TestContext.Current.CancellationToken);
 
         await runtime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c => c.Image == "daprio/daprd:1.17.4" && c.NetworkName == "n"),
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c => c.Image == "daprio/daprd:1.17.4" && c.NetworkName == "n")),
             Arg.Any<CancellationToken>());
 
         // SidecarId is the dispatcher-assigned container name (the runtime
@@ -194,7 +194,7 @@ public class DaprSidecarManagerTests
         var runtime = Substitute.For<IContainerRuntime>();
         runtime.ProbeContainerHttpAsync(
                 Arg.Any<string>(),
-                Arg.Is<string>(u => u.Contains("/v1.0/healthz/outbound")),
+                Arg.Is(ArgMatchers.Matching<string>(u => u.Contains("/v1.0/healthz/outbound"))),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
 

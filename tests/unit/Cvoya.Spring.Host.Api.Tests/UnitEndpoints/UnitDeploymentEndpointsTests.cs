@@ -139,7 +139,7 @@ public class UnitDeploymentEndpointsTests : IClassFixture<CustomWebApplicationFa
             DateTimeOffset.UtcNow);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitGuid),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitGuid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -149,7 +149,7 @@ public class UnitDeploymentEndpointsTests : IClassFixture<CustomWebApplicationFa
         var actorIdStr = unitGuid.ToString("N");
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == actorIdStr),
+                Arg.Is(ArgMatchers.Matching<ActorId>(a => a.GetId() == actorIdStr)),
                 Arg.Any<string>())
             .Returns(proxy);
         return proxy;

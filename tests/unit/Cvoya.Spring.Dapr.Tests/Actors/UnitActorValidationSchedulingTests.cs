@@ -212,7 +212,7 @@ public class UnitActorValidationSchedulingTests
         // payload that round-trips through JSON to a ArtefactValidationError
         // whose Code + Step match the merged contract.
         await _validationTracker.Received(1).SetFailureAsync(ArtefactKind.Unit, TestUnitActorId,
-            Arg.Is<string>(payload => PayloadHasScheduleFailedCode(payload)),
+            Arg.Is(ArgMatchers.Matching<string>(payload => PayloadHasScheduleFailedCode(payload))),
             Arg.Any<CancellationToken>());
 
         // The Validating -> Error transition must have been persisted to
@@ -289,19 +289,19 @@ public class UnitActorValidationSchedulingTests
         // sees is still the symbolic name. Assert on the stable bits:
         // code + missing-field detail.
         await _validationTracker.Received(1).SetFailureAsync(ArtefactKind.Unit, TestUnitActorId,
-            Arg.Is<string>(payload =>
+            Arg.Is(ArgMatchers.Matching<string>(payload =>
                 payload != null
                 && payload.Contains(ArtefactValidationCodes.ConfigurationIncomplete)
                 && payload.Contains("missing")
-                && payload.Contains("image")),
+                && payload.Contains("image"))),
             Arg.Any<CancellationToken>());
 
         // The generic ScheduleFailed catch must NOT have fired — the typed
         // catch's payload should be the only one persisted.
         await _validationTracker.DidNotReceive().SetFailureAsync(ArtefactKind.Unit, TestUnitActorId,
-            Arg.Is<string>(payload =>
+            Arg.Is(ArgMatchers.Matching<string>(payload =>
                 payload != null
-                && payload.Contains(ArtefactValidationCodes.ScheduleFailed)),
+                && payload.Contains(ArtefactValidationCodes.ScheduleFailed))),
             Arg.Any<CancellationToken>());
 
         await _stateManager.Received().SetStateAsync(

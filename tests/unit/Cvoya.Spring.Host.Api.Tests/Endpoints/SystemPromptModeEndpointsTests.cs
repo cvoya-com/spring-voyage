@@ -87,7 +87,7 @@ public class SystemPromptModeEndpointsTests : IClassFixture<CustomWebApplication
         await _factory.AgentExecutionStore.Received(1)
             .SetAsync(
                 Arg.Any<string>(),
-                Arg.Is<AgentExecutionShape>(s => s.SystemPromptMode == "replace"),
+                Arg.Is(ArgMatchers.Matching<AgentExecutionShape>(s => s.SystemPromptMode == "replace")),
                 Arg.Any<CancellationToken>());
     }
 
@@ -139,7 +139,7 @@ public class SystemPromptModeEndpointsTests : IClassFixture<CustomWebApplication
         await _factory.AgentExecutionStore.Received(1)
             .SetAsync(
                 Arg.Any<string>(),
-                Arg.Is<AgentExecutionShape>(s => s.SystemPromptMode == "append"),
+                Arg.Is(ArgMatchers.Matching<AgentExecutionShape>(s => s.SystemPromptMode == "append")),
                 Arg.Any<CancellationToken>());
     }
 
@@ -174,7 +174,7 @@ public class SystemPromptModeEndpointsTests : IClassFixture<CustomWebApplication
         await _factory.UnitExecutionStore.Received(1)
             .SetAsync(
                 Arg.Any<string>(),
-                Arg.Is<UnitExecutionDefaults>(d => d.SystemPromptMode == SystemPromptMode.Replace),
+                Arg.Is(ArgMatchers.Matching<UnitExecutionDefaults>(d => d.SystemPromptMode == SystemPromptMode.Replace)),
                 Arg.Any<CancellationToken>());
     }
 
@@ -201,7 +201,7 @@ public class SystemPromptModeEndpointsTests : IClassFixture<CustomWebApplication
         await _factory.UnitExecutionStore.Received(1)
             .SetAsync(
                 Arg.Any<string>(),
-                Arg.Is<UnitExecutionDefaults>(d => d.SystemPromptMode == SystemPromptMode.Append),
+                Arg.Is(ArgMatchers.Matching<UnitExecutionDefaults>(d => d.SystemPromptMode == SystemPromptMode.Append)),
                 Arg.Any<CancellationToken>());
     }
 
@@ -278,7 +278,7 @@ public class SystemPromptModeEndpointsTests : IClassFixture<CustomWebApplication
     {
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentGuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agentGuid)),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address(Address.AgentScheme, agentGuid),
@@ -293,7 +293,7 @@ public class SystemPromptModeEndpointsTests : IClassFixture<CustomWebApplication
     {
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == Address.UnitScheme && a.Id == unitGuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == Address.UnitScheme && a.Id == unitGuid)),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address(Address.UnitScheme, unitGuid),

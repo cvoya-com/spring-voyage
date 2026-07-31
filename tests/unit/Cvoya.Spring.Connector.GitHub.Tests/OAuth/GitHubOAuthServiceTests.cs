@@ -83,7 +83,7 @@ public class GitHubOAuthServiceTests
         store.WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                var plaintext = (string)ci[0];
+                var plaintext = ci.ArgAt<string>(0)!;
                 var key = Guid.NewGuid().ToString("N");
                 values[key] = plaintext;
                 return Task.FromResult(key);
@@ -91,14 +91,14 @@ public class GitHubOAuthServiceTests
         store.ReadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                var key = (string)ci[0];
+                var key = ci.ArgAt<string>(0)!;
                 values.TryGetValue(key, out var value);
                 return Task.FromResult<string?>(value);
             });
         store.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                var key = (string)ci[0];
+                var key = ci.ArgAt<string>(0)!;
                 values.TryRemove(key, out _);
                 return Task.CompletedTask;
             });
@@ -239,7 +239,7 @@ public class GitHubOAuthServiceTests
         persister.PersistAsync(
                 Arg.Any<string>(),
                 Arg.Any<GitHubUserIdentity>(),
-                Arg.Is<OAuthInitiationContext?>(c => c != null && c.Intent == OAuthInitiationIntent.BindingWizard),
+                Arg.Is(ArgMatchers.Matching<OAuthInitiationContext?>(c => c != null && c.Intent == OAuthInitiationIntent.BindingWizard)),
                 Arg.Any<CancellationToken>())
             .Returns(new OAuthTokenPersistOutcome(
                 OAuthTokenPersistKind.Persisted,

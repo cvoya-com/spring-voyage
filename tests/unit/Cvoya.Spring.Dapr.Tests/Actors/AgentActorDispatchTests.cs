@@ -116,10 +116,10 @@ public class AgentActorDispatchTests
         await _actor.PendingDispatchTask!;
 
         await _dispatcher.Received(1).DispatchAsync(
-            Arg.Is<Message>(m => m.Id == message.Id),
-            Arg.Is<PromptAssemblyContext?>(ctx =>
+            Arg.Is(ArgMatchers.Matching<Message>(m => m.Id == message.Id)),
+            Arg.Is(ArgMatchers.Matching<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
-                ctx.AgentInstructions == "Agent instructions"),
+                ctx.AgentInstructions == "Agent instructions")),
             Arg.Any<CancellationToken>());
     }
 
@@ -134,7 +134,7 @@ public class AgentActorDispatchTests
         await _actor.PendingDispatchTask!;
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompleted),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompleted)),
             Arg.Any<CancellationToken>());
     }
 
@@ -152,7 +152,7 @@ public class AgentActorDispatchTests
         await _actor.PendingDispatchTask!;
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompletedSilent),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompletedSilent)),
             Arg.Any<CancellationToken>());
     }
 
@@ -167,9 +167,9 @@ public class AgentActorDispatchTests
         await _actor.PendingDispatchTask!;
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.RuntimeFailed
-                && e.Severity == ActivitySeverity.Error),
+                && e.Severity == ActivitySeverity.Error)),
             Arg.Any<CancellationToken>());
     }
 
@@ -233,9 +233,9 @@ public class AgentActorDispatchTests
         await _actor.PendingDispatchTask!;
 
         await _activityEventBus.DidNotReceive().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.WorkflowStepCompleted
-                && (e.Summary ?? string.Empty).Contains("Dispatch response recorded on thread")),
+                && (e.Summary ?? string.Empty).Contains("Dispatch response recorded on thread"))),
             Arg.Any<CancellationToken>());
     }
 

@@ -138,7 +138,7 @@ public class SlackOAuthOptionsResolverTests
             .ResolveAsync(Arg.Any<SecretRef>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
-                var @ref = call.Arg<SecretRef>();
+                var @ref = call.Arg<SecretRef>()!;
                 if (@ref.Scope == SecretScope.Tenant
                     && @ref.OwnerId == TestTenantId
                     && tenantValues.TryGetValue(@ref.Name, out var tenantValue))

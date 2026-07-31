@@ -63,7 +63,7 @@ public class ArtefactValidationWorkflowTests
     {
         _context.CallActivityAsync<RunContainerProbeActivityOutput>(
                 nameof(RunContainerProbeActivity),
-                Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, step)))
+                Arg.Is(ArgMatchers.Matching<RunContainerProbeActivityInput>(o => MatchesStep(o, step))))
             .Returns(output);
     }
 
@@ -143,10 +143,10 @@ public class ArtefactValidationWorkflowTests
         // No ValidatingCredential / ResolvingModel should have fired.
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ValidatingCredential)));
+            Arg.Is(ArgMatchers.Matching<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ValidatingCredential))));
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
+            Arg.Is(ArgMatchers.Matching<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel))));
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public class ArtefactValidationWorkflowTests
 
         await _context.DidNotReceive().CallActivityAsync<RunContainerProbeActivityOutput>(
             nameof(RunContainerProbeActivity),
-            Arg.Is<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel)));
+            Arg.Is(ArgMatchers.Matching<RunContainerProbeActivityInput>(o => MatchesStep(o, ArtefactValidationStep.ResolvingModel))));
     }
 
     [Fact]

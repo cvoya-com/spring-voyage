@@ -62,7 +62,7 @@ public class UnitExecutionEndpointAutoStartTests : IClassFixture<CustomWebApplic
 
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == UnitActorGuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == UnitActorGuid)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 

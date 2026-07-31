@@ -41,7 +41,7 @@ public class AgentMailboxRoutingTests
         // the dispatched set.
         await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.InFlightCount == 1),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.InFlightCount == 1)),
             Arg.Any<CancellationToken>());
     }
 
@@ -69,7 +69,7 @@ public class AgentMailboxRoutingTests
         result.ShouldNotBeNull();
         await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 2 && c.Dispatching),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 2 && c.Dispatching)),
             Arg.Any<CancellationToken>());
     }
 
@@ -98,7 +98,7 @@ public class AgentMailboxRoutingTests
         // A new per-thread channel exists for B, marked dispatching.
         await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadB,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadB && c.Dispatching),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadB && c.Dispatching)),
             Arg.Any<CancellationToken>());
         // No QueueAsPending list write happens — the legacy single-slot
         // gate is gone.

@@ -374,7 +374,7 @@ public class GitHubWebhookHandlerFilterTests
 
         await fetcher.Received(1).FetchAsync(
             "acme", "platform", 42,
-            Arg.Is<UnitGitHubConfig>(c => c.AppInstallationId == 9988L),
+            Arg.Is(ArgMatchers.Matching<UnitGitHubConfig>(c => c.AppInstallationId == 9988L)),
             Arg.Any<CancellationToken>());
     }
 

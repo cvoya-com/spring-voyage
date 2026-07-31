@@ -404,9 +404,9 @@ public class A2AExecutionDispatcherTests
         // WORKDIR wins; it does NOT force CWD to the workspace mount. Pin the
         // image flows through verbatim and the null WorkingDirectory.
         await _containerRuntime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c =>
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c =>
                 c.Image == Image &&
-                c.WorkingDirectory == null),
+                c.WorkingDirectory == null)),
             Arg.Any<CancellationToken>());
     }
 
@@ -430,7 +430,7 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         await _containerRuntime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c => c.WorkingDirectory == workspaceMount),
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c => c.WorkingDirectory == workspaceMount)),
             Arg.Any<CancellationToken>());
     }
 
@@ -445,7 +445,7 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         await _containerRuntime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c => c.Image == Image),
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c => c.Image == Image)),
             Arg.Any<CancellationToken>());
     }
 
@@ -474,9 +474,9 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         await _launcher.Received(1).PrepareAsync(
-            Arg.Is<AgentLaunchContext>(ctx =>
+            Arg.Is(ArgMatchers.Matching<AgentLaunchContext>(ctx =>
                 ctx.Provider == "openai" &&
-                ctx.Model == "gpt-4o-mini"),
+                ctx.Model == "gpt-4o-mini")),
             Arg.Any<CancellationToken>());
     }
 
@@ -497,7 +497,7 @@ public class A2AExecutionDispatcherTests
         _mcpServer.Received(1).IssueSession(
             AgentId, message.ThreadId!, message.To.Scheme, message.Id);
         await _launcher.Received(1).PrepareAsync(
-            Arg.Is<AgentLaunchContext>(ctx =>
+            Arg.Is(ArgMatchers.Matching<AgentLaunchContext>(ctx =>
                 ctx.AgentId == AgentId &&
                 ctx.ThreadId == message.ThreadId &&
                 ctx.McpToken == "test-token" &&
@@ -505,7 +505,7 @@ public class A2AExecutionDispatcherTests
                 ctx.Prompt == "the prompt" &&
                 ctx.AgentAddress == message.To &&
                 ctx.CallbackThreadId == threadId &&
-                ctx.MessageId == message.Id),
+                ctx.MessageId == message.Id)),
             Arg.Any<CancellationToken>());
     }
 
@@ -582,7 +582,7 @@ public class A2AExecutionDispatcherTests
 
         await _containerRuntime.Received().ProbeContainerHttpAsync(
             ContainerId,
-            Arg.Is<string>(url => url.EndsWith("/.well-known/agent.json")),
+            Arg.Is(ArgMatchers.Matching<string>(url => url.EndsWith("/.well-known/agent.json"))),
             Arg.Any<CancellationToken>());
     }
 
@@ -809,7 +809,7 @@ public class A2AExecutionDispatcherTests
         // The launch context the launcher saw carried an empty MCP token —
         // the launch path issues no session of its own.
         await _launcher.Received().PrepareAsync(
-            Arg.Is<AgentLaunchContext>(ctx => ctx.McpToken == string.Empty),
+            Arg.Is(ArgMatchers.Matching<AgentLaunchContext>(ctx => ctx.McpToken == string.Empty)),
             Arg.Any<CancellationToken>());
 
         // No session was ever issued against the stable container-identity
@@ -1143,7 +1143,7 @@ public class A2AExecutionDispatcherTests
         // ADR-0055: ContainerConfig no longer carries Workspace; pin only the image.
         var expected = ContainerConfigBuilder.Build(Image, DefaultSpec);
         await _containerRuntime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c => c.Image == expected.Image),
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c => c.Image == expected.Image)),
             Arg.Any<CancellationToken>());
     }
 
@@ -1203,10 +1203,10 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         await _containerRuntime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c =>
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c =>
                 c.EnvironmentVariables != null &&
                 c.EnvironmentVariables.ContainsKey("SPRING_SYSTEM_PROMPT") &&
-                c.EnvironmentVariables["SPRING_SYSTEM_PROMPT"] == expectedPrompt),
+                c.EnvironmentVariables["SPRING_SYSTEM_PROMPT"] == expectedPrompt)),
             Arg.Any<CancellationToken>());
     }
 

@@ -107,7 +107,7 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         var ghostId = TestSlugIds.For("contract-ghost-agent");
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ghostId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == ghostId)),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
@@ -126,7 +126,7 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         var ghostId = TestSlugIds.For("contract-ghost-deploy");
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ghostId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == ghostId)),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
@@ -147,7 +147,7 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractUndeploy_Id),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractUndeploy_Id)),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address("agent", Agent_ContractUndeploy_Id),
@@ -248,12 +248,12 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         // Stub: ephemeral agent has hosting=ephemeral, persistent has hosting=persistent.
         _factory.AgentExecutionStore
             .GetAsync(
-                Arg.Is<string>(id => id == Agent_AgentEphemeral_Id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<string>(id => id == Agent_AgentEphemeral_Id.ToString("N"))),
                 Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(Hosting: "ephemeral"));
         _factory.AgentExecutionStore
             .GetAsync(
-                Arg.Is<string>(id => id == Agent_AgentPersistent_Id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<string>(id => id == Agent_AgentPersistent_Id.ToString("N"))),
                 Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(Hosting: "persistent"));
 
@@ -307,17 +307,17 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         // Stub initiative levels via the engine.
         _factory.InitiativeEngine
             .GetCurrentLevelAsync(
-                Arg.Is<string>(id => id == Agent_AgentPassive_Id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<string>(id => id == Agent_AgentPassive_Id.ToString("N"))),
                 Arg.Any<CancellationToken>())
             .Returns(Cvoya.Spring.Core.Initiative.InitiativeLevel.Passive);
         _factory.InitiativeEngine
             .GetCurrentLevelAsync(
-                Arg.Is<string>(id => id == Agent_AgentProactive_Id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<string>(id => id == Agent_AgentProactive_Id.ToString("N"))),
                 Arg.Any<CancellationToken>())
             .Returns(Cvoya.Spring.Core.Initiative.InitiativeLevel.Proactive);
         _factory.InitiativeEngine
             .GetCurrentLevelAsync(
-                Arg.Is<string>(id => id == Agent_AgentAutonomous_Id.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<string>(id => id == Agent_AgentAutonomous_Id.ToString("N"))),
                 Arg.Any<CancellationToken>())
             .Returns(Cvoya.Spring.Core.Initiative.InitiativeLevel.Autonomous);
 
@@ -354,14 +354,14 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == actorId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == actorId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
         var proxy = Substitute.For<IUnitActor>();
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
-                Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == actorId.ToString("N")),
+                Arg.Is(ArgMatchers.Matching<global::Dapr.Actors.ActorId>(a => a.GetId() == actorId.ToString("N"))),
                 Arg.Any<string>())
             .Returns(proxy);
     }

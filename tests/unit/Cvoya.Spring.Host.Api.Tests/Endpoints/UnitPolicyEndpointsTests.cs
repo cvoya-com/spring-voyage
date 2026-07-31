@@ -287,7 +287,7 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         var actorIdV1 = unitIdV1;
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitIdV1),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitIdV1)),
                 Arg.Any<CancellationToken>())
             .Returns(_ => new DirectoryEntry(
                 new Address("unit", unitIdV1),
@@ -320,7 +320,7 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         var actorIdV2 = unitIdV2;
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitIdV2),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitIdV2)),
                 Arg.Any<CancellationToken>())
             .Returns(_ => new DirectoryEntry(
                 new Address("unit", unitIdV2),
@@ -363,7 +363,7 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
     {
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitId),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitId)),
                 Arg.Any<CancellationToken>())
             .Returns(_ => new DirectoryEntry(
                 new Address("unit", unitId),

@@ -652,7 +652,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 .Returns(ci => Task.FromResult<TenantSkillBundleBinding?>(
                     new TenantSkillBundleBinding(
                         TenantId: OssTenantIds.Default,
-                        BundleId: ci.Arg<string>(),
+                        BundleId: ci.Arg<string>()!,
                         Enabled: true,
                         BoundAt: DateTimeOffset.UtcNow)));
             services.AddSingleton(bindingStub);

@@ -278,7 +278,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
             null,
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == scheme && a.Id == actorId),
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == scheme && a.Id == actorId)),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
     }

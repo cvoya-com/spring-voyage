@@ -116,7 +116,7 @@ public class DaprStateBackedSecretStoreTests : IDisposable
         await _dapr.Received(1).SaveStateAsync(
             Component,
             $"secrets/{key}",
-            Arg.Is<string>(v => !v.Contains("hunter2")),
+            Arg.Is(ArgMatchers.Matching<string>(v => !v.Contains("hunter2"))),
             Arg.Any<StateOptions?>(),
             Arg.Any<IReadOnlyDictionary<string, string>?>(),
             Arg.Any<CancellationToken>());
@@ -132,7 +132,7 @@ public class DaprStateBackedSecretStoreTests : IDisposable
 
         await _dapr.Received().SaveStateAsync(
             Component,
-            Arg.Is<string>(k => !k.Contains("acme") && !k.Contains("local") && !k.Contains("tenant")),
+            Arg.Is(ArgMatchers.Matching<string>(k => !k.Contains("acme") && !k.Contains("local") && !k.Contains("tenant"))),
             Arg.Any<string>(),
             Arg.Any<StateOptions?>(),
             Arg.Any<IReadOnlyDictionary<string, string>?>(),

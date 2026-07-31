@@ -134,7 +134,7 @@ public class AgentActorTests
         // the dispatched batch.
         await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.InFlightCount == 1),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.InFlightCount == 1)),
             Arg.Any<CancellationToken>());
     }
 
@@ -158,10 +158,10 @@ public class AgentActorTests
         result.ShouldNotBeNull();
         await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c =>
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c =>
                 c.ThreadId == threadId &&
                 c.Messages.Count == 2 &&
-                c.Dispatching),
+                c.Dispatching)),
             Arg.Any<CancellationToken>());
     }
 
@@ -188,7 +188,7 @@ public class AgentActorTests
         // A new channel for B exists.
         await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadB,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadB && c.Dispatching),
+            Arg.Is(ArgMatchers.Matching<ThreadChannel>(c => c.ThreadId == threadB && c.Dispatching)),
             Arg.Any<CancellationToken>());
     }
 
@@ -459,7 +459,7 @@ public class AgentActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived)),
             Arg.Any<CancellationToken>());
     }
 
@@ -471,7 +471,7 @@ public class AgentActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived)),
             Arg.Any<CancellationToken>());
     }
 
@@ -485,13 +485,13 @@ public class AgentActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
                 && e.Details.HasValue
                 && e.Details.Value.GetProperty("messageId").GetString() == message.Id.ToString()
                 && e.Details.Value.GetProperty("from").GetString() == $"{message.From.Scheme}://{message.From.Path}"
                 && e.Details.Value.GetProperty("to").GetString() == $"{message.To.Scheme}://{message.To.Path}"
-                && e.Details.Value.GetProperty("body").GetString() == "hello world"),
+                && e.Details.Value.GetProperty("body").GetString() == "hello world")),
             Arg.Any<CancellationToken>());
     }
 
@@ -505,9 +505,9 @@ public class AgentActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
-                && e.Summary == "Approve merge?"),
+                && e.Summary == "Approve merge?")),
             Arg.Any<CancellationToken>());
     }
 
@@ -525,9 +525,9 @@ public class AgentActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
-                && e.Summary == "Looks good — shipping."),
+                && e.Summary == "Looks good — shipping.")),
             Arg.Any<CancellationToken>());
     }
 
@@ -541,11 +541,11 @@ public class AgentActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.MessageArrived
                 && !e.Summary.StartsWith("Received ")
                 && !e.Summary.Contains(message.Id.ToString())
-                && !e.Summary.Contains(message.From.Path)),
+                && !e.Summary.Contains(message.From.Path))),
             Arg.Any<CancellationToken>());
     }
 
@@ -570,9 +570,9 @@ public class AgentActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ThreadStarted &&
-                e.CorrelationId == "conv-started"),
+                e.CorrelationId == "conv-started")),
             Arg.Any<CancellationToken>());
     }
 
@@ -608,12 +608,12 @@ public class AgentActorTests
         // event, replacing the legacy ErrorOccurred "Container exit code"
         // emission.
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.RuntimeFailed &&
                 e.CorrelationId == threadId &&
                 e.Severity == ActivitySeverity.Error &&
                 e.Details.HasValue &&
-                e.Details.Value.GetProperty("exitCode").GetInt32() == 125),
+                e.Details.Value.GetProperty("exitCode").GetInt32() == 125)),
             Arg.Any<CancellationToken>());
     }
 
@@ -650,7 +650,7 @@ public class AgentActorTests
         // there is no "response recorded on thread" persistence (the
         // dispatcher returns a RuntimeOutcome, not a Message).
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompleted),
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompleted)),
             Arg.Any<CancellationToken>());
     }
 
@@ -704,14 +704,14 @@ public class AgentActorTests
         // portal activity feed can surface the failure without raw log access
         // (#2551).
         await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
+            Arg.Is(ArgMatchers.Matching<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ErrorOccurred &&
                 e.Severity == ActivitySeverity.Error &&
                 e.CorrelationId == threadId &&
                 e.Details.HasValue &&
                 e.Details.Value.GetProperty("error").GetString() == errorText &&
                 e.Details.Value.GetProperty("agentId").GetString() == TestSlugIds.HexFor("test-agent") &&
-                e.Details.Value.GetProperty("threadId").GetString() == threadId),
+                e.Details.Value.GetProperty("threadId").GetString() == threadId)),
             Arg.Any<CancellationToken>());
     }
 

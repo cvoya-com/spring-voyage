@@ -101,11 +101,11 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
         body.GetProperty("exitCode").GetInt32().ShouldBe(0);
 
         await _factory.ContainerRuntime.Received(1).RunAsync(
-            Arg.Is<ContainerConfig>(c =>
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c =>
                 c.Image == "alpine:latest"
                 && c.EnvironmentVariables!["FOO"] == "bar"
                 && c.VolumeMounts!.Contains("/tmp/a:/workspace")
-                && c.WorkingDirectory == "/workspace"),
+                && c.WorkingDirectory == "/workspace")),
             Arg.Any<CancellationToken>());
     }
 
@@ -135,11 +135,11 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         await _factory.ContainerRuntime.Received(1).RunAsync(
-            Arg.Is<ContainerConfig>(c =>
+            Arg.Is(ArgMatchers.Matching<ContainerConfig>(c =>
                 c.NetworkName == "spring-net-abc"
                 && c.AdditionalNetworks != null
                 && c.AdditionalNetworks.Count == 1
-                && c.AdditionalNetworks[0] == "spring-tenant-default"),
+                && c.AdditionalNetworks[0] == "spring-tenant-default")),
             Arg.Any<CancellationToken>());
     }
 

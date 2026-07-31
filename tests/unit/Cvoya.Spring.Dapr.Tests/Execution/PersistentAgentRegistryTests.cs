@@ -416,7 +416,7 @@ public class PersistentAgentRegistryTests : IDisposable
         await _containerRuntime.Received(1).StopAsync("container-1", Arg.Any<CancellationToken>());
         await _containerRuntime.Received(1).StopAsync("container-2", Arg.Any<CancellationToken>());
         await _containerRuntime.DidNotReceive().StopAsync(
-            Arg.Is<string>(s => s != "container-1" && s != "container-2"),
+            Arg.Is(ArgMatchers.Matching<string>(s => s != "container-1" && s != "container-2")),
             Arg.Any<CancellationToken>());
     }
 

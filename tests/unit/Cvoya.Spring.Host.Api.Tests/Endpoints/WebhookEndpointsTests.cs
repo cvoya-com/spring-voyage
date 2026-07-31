@@ -139,7 +139,7 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
             RegisteredAt: DateTimeOffset.UtcNow);
 
         _factory.DirectoryService
-            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == TargetUnitPath), Arg.Any<CancellationToken>())
+            .ResolveAsync(Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == TargetUnitPath)), Arg.Any<CancellationToken>())
             .Returns(directoryEntry);
 
         var unitProxy = Substitute.For<IUnitActor>();
@@ -187,16 +187,16 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
         await _factory.DirectoryService
             .Received()
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == TargetUnitPath),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Path == TargetUnitPath)),
                 Arg.Any<CancellationToken>());
 
         await unitProxy
             .Received()
             .ReceiveAsync(
-                Arg.Is<Message>(m =>
+                Arg.Is(ArgMatchers.Matching<Message>(m =>
                     m.To.Scheme == "unit"
                     && m.To.Path == TargetUnitPath
-                    && m.From.Scheme == "connector"),
+                    && m.From.Scheme == "connector")),
                 Arg.Any<CancellationToken>());
     }
 

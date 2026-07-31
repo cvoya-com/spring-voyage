@@ -289,7 +289,7 @@ public class ScopedSecretEndpointsTests : IClassFixture<CustomWebApplicationFact
             .Returns(Task.FromResult(false));
         _factory.SecretAccessPolicy
             .IsAuthorizedAsync(
-                Arg.Is<SecretAccessAction>(a => a != action),
+                Arg.Is(ArgMatchers.Matching<SecretAccessAction>(a => a != action)),
                 Arg.Any<SecretScope>(),
                 Arg.Any<Guid?>(),
                 Arg.Any<CancellationToken>())

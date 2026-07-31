@@ -56,7 +56,7 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
         var unitName = NewUnitName();
         ArrangeResolved(unitName);
         _factory.BoundaryStore.GetAsync(
-            Arg.Is<Address>(a => a.Path == unitName),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Path == unitName)),
             Arg.Any<CancellationToken>()).Returns(UnitBoundary.Empty);
 
         var response = await _client.GetAsync($"/api/v1/tenant/units/{unitName}/boundary", ct);
@@ -85,7 +85,7 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
                 return Task.CompletedTask;
             });
         _factory.BoundaryStore.GetAsync(
-            Arg.Is<Address>(a => a.Path == unitName),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Path == unitName)),
             Arg.Any<CancellationToken>())
             .Returns(_ => captured ?? UnitBoundary.Empty);
 
@@ -126,8 +126,8 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         await _factory.BoundaryStore.Received().SetAsync(
-            Arg.Is<Address>(a => a.Path == unitName),
-            Arg.Is<UnitBoundary>(b => b.IsEmpty),
+            Arg.Is(ArgMatchers.Matching<Address>(a => a.Path == unitName)),
+            Arg.Is(ArgMatchers.Matching<UnitBoundary>(b => b.IsEmpty)),
             Arg.Any<CancellationToken>());
     }
 
@@ -150,7 +150,7 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
         var unitGuid = Guid.Parse(unitName);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitGuid),
+                Arg.Is(ArgMatchers.Matching<Address>(a => a.Scheme == "unit" && a.Id == unitGuid)),
                 Arg.Any<CancellationToken>())
             .Returns(_ => new DirectoryEntry(
                 new Address("unit", unitGuid),
