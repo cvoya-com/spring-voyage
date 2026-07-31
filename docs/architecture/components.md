@@ -121,9 +121,14 @@ id; turn-based concurrency gives each a natural mailbox.
 
 `AgentActor`, `UnitActor`, and `HumanActor` all implement the same addressable,
 message-receiving contract: a unit is indistinguishable from an agent at the
-messaging boundary ([ADR-0017](../decisions/0017-unit-is-an-agent-composite.md),
-[ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)). Connectors
+messaging boundary ([ADR-0017](../decisions/archive/0017-unit-is-an-agent-composite.md) —
+archived, [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)). Connectors
 are **not** actors — they are non-routable bridges (see [Connectors](connectors.md)).
+
+> **Planned (v1.0-beta, [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)):**
+> `UnitActor` is retired with the unit concept. Teams — the successor grouping
+> concept — are not actors: they have no mailbox, no runtime, and no lifecycle.
+> Agent and human identities remain the only routable actor kinds.
 
 What an actor keeps in Dapr state versus what lives in PostgreSQL is governed by
 the state-ownership matrix in [Data & identity](data-and-identity.md).

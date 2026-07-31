@@ -1,5 +1,13 @@
 # Units vs agents — quick reference
 
+> **Planned (v1.0-beta, [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)):**
+> "a unit is an agent" is reversed. The decided direction has three subjects —
+> **Agent**, **Human**, **Team** — where teams are organizational, policy, and
+> resource scopes and are *not* agents (no mailbox, runtime, lifecycle, or
+> agent-shaped surfaces). The shared-surface table below stops applying to
+> groupings; only agents keep the agent-shaped contract. This page describes
+> the implemented system and will be replaced as the implementation lands.
+
 A **unit is an agent**. This page is the one-screen reference for what that means for decision-making: which features apply to both, what's unique to each, and how to decide when designing a new surface, endpoint, or UX.
 
 ## What's the same

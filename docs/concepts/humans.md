@@ -1,5 +1,16 @@
 # Humans
 
+> **Planned (v1.0-beta, [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)):**
+> the **Hat model described on this page is retired**. The decided direction is
+> one canonical routable Human per authenticated user; contextual display
+> ("the reviewer on this team") moves onto team-membership and role-assignment
+> relations instead of multiplying identities. Package `- human:` declarations
+> become **slots** bound to real identities at instantiation — one person can
+> take several slots, yielding one membership plus N role assignments. The
+> reachability gate, disambiguated labels, and per-Hat inbox machinery go away
+> with the Hats. This page describes the implemented system and will be
+> rewritten as the implementation lands.
+
 ## What a human is
 
 A **human** is an addressable subject that participates in threads alongside agents and units. The platform models humans as actors (`HumanActor`) with their own address scheme (`human:<guid>`); a message addressed to `human:<id>` is routed to the right channel (Slack, GitHub, email, etc.) through the human's configured inbound connector binding.
