@@ -25,3 +25,6 @@ jobs:
       with:
         fail-on-severity: high
         deny-licenses: GPL-2.0, GPL-3.0
+        # Next.js 16.2.12 pins PostCSS 8.4.31. The portal processes only
+        # repository-owned CSS; remove these with the expiring #3241 follow-up.
+        allow-ghsas: GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849

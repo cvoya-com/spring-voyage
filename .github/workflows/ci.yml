@@ -1018,7 +1018,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install ruff
-        run: pip install ruff
+        # Ruff 0.16 surfaces pre-existing magazine sample findings; #3244
+        # tracks the source migration and a shared repository-owned version.
+        run: pip install ruff==0.15.4
 
       - name: Lint
         run: |
