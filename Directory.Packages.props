@@ -4,15 +4,15 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Dapr SDK -->
-    <PackageVersion Include="Dapr.Client" Version="1.18.4" />
-    <PackageVersion Include="Dapr.AspNetCore" Version="1.18.4" />
-    <PackageVersion Include="Dapr.Actors" Version="1.18.4" />
-    <PackageVersion Include="Dapr.Actors.AspNetCore" Version="1.18.4" />
-    <PackageVersion Include="Dapr.Workflow" Version="1.18.4" />
+    <PackageVersion Include="Dapr.Client" Version="1.18.5" />
+    <PackageVersion Include="Dapr.AspNetCore" Version="1.18.5" />
+    <PackageVersion Include="Dapr.Actors" Version="1.18.5" />
+    <PackageVersion Include="Dapr.Actors.AspNetCore" Version="1.18.5" />
+    <PackageVersion Include="Dapr.Workflow" Version="1.18.5" />
 
     <!-- GitHub -->
     <PackageVersion Include="Octokit" Version="14.0.0" />
-    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.21.0" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
 
     <!-- CLI -->
     <PackageVersion Include="System.CommandLine" Version="2.0.10" />
@@ -62,7 +62,7 @@
          instances against OpenAPI 3.1 component schemas, which are real
          JSON Schema 2020-12. Used only by Cvoya.Spring.Host.Api.Tests so
          the package stays out of the runtime closure. -->
-    <PackageVersion Include="JsonSchema.Net" Version="9.3.0" />
+    <PackageVersion Include="JsonSchema.Net" Version="9.4.0" />
 
     <!-- OTLP/HTTP+protobuf wire-format support (#2501). Google.Protobuf's
          CodedInputStream parses the OTLP envelopes our ingest controller
