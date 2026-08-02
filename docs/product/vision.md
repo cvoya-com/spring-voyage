@@ -31,7 +31,7 @@ Today's AI experiences make intelligence something you *operate*. A chat assista
 - Real collaboration **produces things**. The outcome is a document, a design, a body of knowledge — not a transcript you scroll back through.
 - Real collaboration **continues while you're away** — and catching up on what happened should be effortless.
 
-Chat products lose the work product and the relationship. Workflow tools capture a process but freeze it in a diagram the human must engineer up front. Autonomous task runners execute and forget. None of them offer what a good team offers: individuals you trust, a shared place, things that last, and legibility about who did what and why.
+Chat products lose the outcome and the relationship. Workflow tools capture a process but freeze it in a diagram the human must engineer up front. Autonomous task runners execute and forget. None of them offer what a good team offers: individuals you trust, a shared place, things that last, and legibility about who did what and why.
 
 ## The bet
 
@@ -89,7 +89,7 @@ Differentiators 1 and 7 depend on the memory, continuity, and record architectur
 ## Non-goals
 
 - **Not a workflow or DAG designer for end users.** No end-user flowchart canvas. (Visual flow tooling may someday be worth considering as a *developer-side* way to define and deploy agents — by reusing an existing system, not building one. That is an exploration, not a commitment.)
-- **Not a real-time chat product.** No presence, no typing indicators, no delivery races. Mail, not instant messaging.
+- **Not a real-time chat product.** No presence, no typing indicators, no expectation of immediacy. Mail, not instant messaging.
 - **Not an agent-building IDE.** Building and packaging agents is a developer activity with its own tools; this product is where agents and humans collaborate, not where agents are programmed.
 - **Not a BI or analytics product.** No platform-computed dashboards of "team performance." If a team wants a report, a member — human or agent — writes one; it's an artifact.
 - **Not an orchestration engine.** The platform ships no orchestrator and no coordinator. Individual agents may embed whatever orchestration logic or framework their builders choose.

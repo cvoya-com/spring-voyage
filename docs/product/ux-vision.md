@@ -43,7 +43,7 @@ These terms are used throughout; the ones marked *provisional* are placeholders 
 
 **The administrators** — the *deployment administrator* (installs and operates the deployment) and the *tenant administrator* (configures the organization: policies, instructions, credentials, budgets, connected experiences). Their home is the management portal, not this surface.
 
-**The self-hoster holds every role at once.** In a single-person deployment, the same human is deployment administrator, tenant administrator, and member. The product offers them either a combined experience or deliberately **focused views** — administrator hats set aside, member experience undiluted — and the CLI compartmentalizes along the same lines.
+**The self-hoster holds every role at once.** In a single-person deployment, the same human is deployment administrator, tenant administrator, and member. The product offers them either a combined experience or deliberately **focused views** — administrator concerns set aside, member experience undiluted — and the CLI compartmentalizes along the same lines.
 
 There is no external-party persona: everyone who appears in the experience is a member of the organization.
 
