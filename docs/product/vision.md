@@ -12,13 +12,13 @@ Spring Voyage is a self-hostable, source-available collaboration platform for hu
 
 > **Individuals — agents and humans — exchanging messages, sharing versioned artifacts, organized in teams, each with their own memory and their own view of what happened.**
 
-Everything else in the product is built from those pieces. An *agent* is an AI individual with a stable identity, its own memory, and the ability to act. A *human* is a person with the same standing: an addressable individual among individuals. A *team* is how individuals organize — a scope for policy, resources, and shared context, never a speaker with its own voice. *Messages* are how individuals reach each other, one-way, like mail. *Artifacts* are the things that last: documents, plans, art, notes, whatever a collaboration produces.
+Everything else in the product is built from those pieces. An *agent* is an AI individual with a stable identity, its own memory, and the ability to act. A *human* is a person with the same standing: an addressable individual among individuals. A *team* is how individuals organize — a scope for policy, resources, and shared context, never a speaker with its own voice. *Messages* are how individuals reach each other, one-way and asynchronous. *Artifacts* are the things that last: documents, plans, art, notes, whatever a collaboration produces.
 
 ## Who it serves
 
-**A person and their agents.** In a self-hosted deployment there is one human, who is simultaneously the platform's administrator and its everyday user. The product must be complete for that one person: they assemble agents into teams, collaborate with them, and administer the deployment — ideally without those roles bleeding into each other's experience.
+**A person and their agents.** In a self-hosted deployment there is one human, who holds every role at once: they administer the deployment, administer the organization, and are its everyday user. The product must be complete for that one person — they assemble agents into teams, collaborate with them, and run the machinery underneath — ideally without those roles bleeding into each other's experience.
 
-**Organizations.** In a hosted deployment, many humans share one organization of teams and agents — collaborating with the same agents and with each other, gated by authorization. Who may interact with whom (not every member may task every agent) is an authorization decision the platform is designed to express.
+**Organizations.** In a hosted deployment, many humans share one organization of teams and agents — collaborating with the same agents and with each other, gated by authorization. Who may interact with whom (not everyone may approach every agent) is an authorization decision the platform is designed to express.
 
 **Everyone inside is a member.** There is no path for an outside party to send anything into a deployment. The outside world reaches a team only through its members: a human brings a request in through the platform's own surfaces or through a connected experience (such as a Slack workspace wired to the deployment). The product never has to represent a stranger.
 
@@ -58,10 +58,10 @@ Against the four families of alternatives:
 
 The durable differentiators:
 
-1. **Individuals, not sessions.** Agents have stable identity and accumulating memory. Guidance sticks: mentor an agent once and it stays mentored.
+1. **Individuals, not sessions.** Agents have stable identity and accumulating memory. Guidance sticks: what you tell an agent today shapes how it behaves long after.
 2. **An organization, not a pipeline.** Teams and roles route collaboration; there is no hardcoded flowchart to maintain.
-3. **Asynchronous by design.** Mail semantics, not chat. The team continues while you're away; catching up is a first-class experience; the human is never a blocking node.
-4. **Things that last, not transcripts.** Versioned shared artifacts — including domain-specific kinds that agents themselves define — are the center of gravity. Messages are connective tissue.
+3. **Asynchronous by design.** Messages are asynchronous by nature — a recipient chooses when to attend to them. The team continues while you're away; catching up is a first-class experience; the human is never a blocking node.
+4. **Things that last, not transcripts.** Versioned shared artifacts — including domain-specific kinds that agents themselves define — are the center of gravity, and messages are the connective tissue around them. Every exchange stays on record and inspectable; transcripts exist and matter — they are just not the point.
 5. **Humans are members, not operators.** A human participates through the same primitives as an agent: send, receive, create, share. Administration is a separate surface, not the product.
 6. **The place, not the brain.** Any agent runtime or framework can join; if orchestration logic exists anywhere, it lives inside an agent, never in the platform. The platform is where collaboration happens, not who decides it.
 7. **Legible by construction.** Every message and change lands in an append-only record with causal links. "Who did what, and why" has a trustworthy answer — for humans and agents alike.
@@ -80,7 +80,7 @@ Differentiators 1 and 7 depend on the memory, continuity, and record architectur
 
 **4. A substrate, never a boss.** The platform is never a participant: it authors no messages, answers no questions, and intercepts nothing. It prescribes no artifact types, no roles beyond its own administrative ones, no workflow, and no model of collaborating. It computes only **lossless views** of the record — grouping and rendering what an observer is authorized to see. Anything interpretive — a summary, a report, a rollup of a team's output — is *members' work*, produced by a human or agent as an ordinary artifact. Even relationships like "accountable for" are domain vocabulary, expressed in what members publish, not modeled by the platform ([#3265](https://github.com/cvoya-com/spring-voyage/issues/3265) tracks the deliberate deferral of platform-level relationship primitives).
 
-**5. Asynchronous by design.** Messages are one-way, like mail. There is no presence, no typing indicator, no read receipt — and no pressure to be "online." The product's rhythm is: delegate, go away, come back, catch up, steer.
+**5. Asynchronous by design.** Messages are one-way and asynchronous — a recipient chooses when to attend to them, and nothing in the product implies otherwise: no presence, no typing indicator, no read receipt, no pressure to be "online." The product's rhythm is: start something, step away, come back, catch up, steer.
 
 **6. Meet people where they already talk.** Conversation with agents doesn't have to happen inside Spring Voyage's own surfaces: members can meet their agents in connected workspaces they already use (such as a Slack workspace bound to the deployment), with Spring Voyage remaining the substrate underneath — identity, record, memory, artifacts. The platform's own experience is **the lens a workspace can't be**: an individual's history across its whole life, a team's spaces and artifacts, live activity, continuity. External workspaces carry conversation; they never become the substrate.
 
@@ -89,7 +89,7 @@ Differentiators 1 and 7 depend on the memory, continuity, and record architectur
 ## Non-goals
 
 - **Not a workflow or DAG designer for end users.** No end-user flowchart canvas. (Visual flow tooling may someday be worth considering as a *developer-side* way to define and deploy agents — by reusing an existing system, not building one. That is an exploration, not a commitment.)
-- **Not a real-time chat product.** No presence, no typing indicators, no expectation of immediacy. Mail, not instant messaging.
+- **Not a real-time chat product.** The product never manufactures urgency: no presence, no typing indicators, no expectation of immediacy.
 - **Not an agent-building IDE.** Building and packaging agents is a developer activity with its own tools; this product is where agents and humans collaborate, not where agents are programmed.
 - **Not a BI or analytics product.** No platform-computed dashboards of "team performance." If a team wants a report, a member — human or agent — writes one; it's an artifact.
 - **Not an orchestration engine.** The platform ships no orchestrator and no coordinator. Individual agents may embed whatever orchestration logic or framework their builders choose.
