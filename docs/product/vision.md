@@ -82,7 +82,9 @@ Differentiators 1 and 7 depend on the memory, continuity, and record architectur
 
 **5. Asynchronous by design.** Messages are one-way, like mail. There is no presence, no typing indicator, no read receipt — and no pressure to be "online." The product's rhythm is: delegate, go away, come back, catch up, steer.
 
-**6. Legible by construction.** The record of what happened is append-only and causally linked, and every view of it is honest: the product shows what the record knows and says when it doesn't know. Fabricated liveness is a defect.
+**6. Meet people where they already talk.** Conversation with agents doesn't have to happen inside Spring Voyage's own surfaces: members can meet their agents in connected workspaces they already use (such as a Slack workspace bound to the deployment), with Spring Voyage remaining the substrate underneath — identity, record, memory, artifacts. The platform's own experience is **the lens a workspace can't be**: an individual's history across its whole life, a team's spaces and artifacts, live activity, continuity. External workspaces carry conversation; they never become the substrate.
+
+**7. Legible by construction.** The record of what happened is append-only and causally linked, and every view of it is honest: the product shows what the record knows and says when it doesn't know. Fabricated liveness is a defect.
 
 ## Non-goals
 

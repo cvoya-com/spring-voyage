@@ -98,6 +98,12 @@ Spring Voyage currently ships one web application with two portals ([decision re
 - **Borrowed.** One web application, one session and sign-in, one design system, one typed client of the public API. Two rules carry over with full force: **no portal-private API** (every capability the portal uses is public API, usable by anyone) and **CLI parity** (every portal capability has a CLI counterpart).
 - **Explicitly avoided.** Three failure modes of the current portals, named so the explorations design against them: presenting activity as an undifferentiated event stream; navigation built on conversation containers; and status theater — showing liveness or progress the record doesn't support.
 
+## Relationship to connected workspaces
+
+Members may converse with agents where they already talk: an external workspace (such as Slack) bound to the deployment through a connector carries conversation with the organization's members, with the platform as the substrate underneath. This is a standing design goal, not an edge case — for many members, day-to-day exchanges will happen there.
+
+The consequence for this portal's design: **don't compete with chat; be the lens a workspace can't be.** What belongs uniquely here is everything an external workspace cannot show — a member's history across its whole life, a team's space and artifacts with versions and locks, live activity as it streams, causal navigation, catch-up and continuity. The explorations should treat connected workspaces as a given neighboring surface and design this portal around what only it can do.
+
 ## Platform capabilities this UX depends on
 
 The experience above is only as honest as the platform beneath it. This section states the UX-driven requirements on the platform, grouped by the decision record that owns each area. It exists so that each requirement can be carried into the corresponding decision as a concrete input.
