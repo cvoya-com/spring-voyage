@@ -45,6 +45,7 @@ jobs:
       runtime_catalog: ${{ steps.filter.outputs.runtime_catalog }}
       sample: ${{ steps.filter.outputs.sample }}
       platform_dockerfile: ${{ steps.filter.outputs.platform_dockerfile }}
+      agent_context: ${{ steps.filter.outputs.agent_context }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -186,6 +187,28 @@ jobs:
               # input (web filter, gated on jointly below).
               - 'eng/build/Dockerfile'
               - 'eng/ci/enforce-npm.cjs'
+            agent_context:
+              - 'AGENTS.md'
+              - 'CLAUDE.md'
+              - '.claude/rules/**'
+              - '.claudeignore'
+              - 'eng/agent-hooks/context-budget.test.sh'
+              - 'eng/agent-hooks/hooks.test.sh'
+
+  agent-context:
+    name: Agent context contract
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.agent_context == 'true' || needs.changes.outputs.ci_workflow == 'true'
+    timeout-minutes: 2
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check instruction budgets and lazy rules
+        run: bash eng/agent-hooks/context-budget.test.sh
 
   workflow-yaml:
     name: Workflow YAML syntax

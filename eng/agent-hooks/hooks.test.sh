@@ -4,6 +4,8 @@
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+bash context-budget.test.sh || exit 1
+
 if ! command -v jq >/dev/null 2>&1; then
   printf 'hooks.test.sh SKIPPED: jq is not installed, so the guards fail open here.\n'
   exit 0
