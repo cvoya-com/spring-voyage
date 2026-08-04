@@ -1,102 +1,57 @@
-# Spring Voyage — Project Rules
+# Spring Voyage — project instructions
 
-A source-available collaboration platform for teams of AI agents — and the humans they work with. General-purpose, domain-agnostic. Built on .NET 10 and Dapr. Namespace: `Cvoya.Spring.*`.
+Spring Voyage is a source-available, domain-agnostic collaboration platform for teams of AI agents and humans. It uses .NET 10 and Dapr under the `Cvoya.Spring.*` namespace. Read [CONVENTIONS.md](CONVENTIONS.md) before changing code.
 
-## Coding conventions
+The as-built architecture is under [docs/architecture/](docs/architecture/README.md), with accepted decisions under [docs/decisions/](docs/decisions/README.md). Read the relevant pages before working in an area.
 
-[`CONVENTIONS.md`](CONVENTIONS.md) is mandatory. Read it before writing code.
+## Platform invariants
 
-## Architecture
+- Agents are Dapr virtual actors with durable per-thread mailboxes.
+- A unit is a composite agent; unit routing is runtime behavior, not platform configuration. See [units vs agents](docs/concepts/units-vs-agents.md).
+- Humans are addressable thread participants, not agents; see [humans](docs/concepts/humans.md).
+- Connectors bridge external systems to units but are not routable subjects.
+- Messages are typed, one-way communications on durable threads.
+- The platform coordinates external agent runtimes in ephemeral or persistent containers; it does not host its own tool loop.
+- Prompt assembly has platform, unit, thread, and agent layers.
 
-Architecture lives under [`docs/architecture/`](docs/architecture/README.md); decision records under [`docs/decisions/`](docs/decisions/README.md). Read the relevant doc before working on an issue.
+## Build and verification
 
-Key concepts:
+Use the repository `build`, `test`, `lint`, and `format` skills. Bare `dotnet test SpringVoyage.slnx` can exit successfully without running tests, so never use it as evidence.
 
-- **Agents** — Dapr virtual actors with a per-thread mailbox.
-- **Units** — composite agents that have children. A unit **is** an agent — see [`docs/concepts/units-vs-agents.md`](docs/concepts/units-vs-agents.md) for the quick reference on what's shared vs different; most features apply to both subjects identically. How a unit routes work across its members is runtime behaviour, not platform configuration ([ADR-0053](docs/decisions/0053-units-are-agents-and-one-way-delivery.md)).
-- **Humans** — addressable thread participants (not agents). A human implements only `IMessageReceiver` and can be a member of a unit with permission grants. See [`docs/concepts/humans.md`](docs/concepts/humans.md). Portal surfaces for humans are scoped to v0.2.
-- **Connectors** — non-routable bridges between external systems and units.
-- **Messages** — typed, one-way communications between addressable entities, exchanged on durable threads.
-- **Execution** — the platform coordinates external agent runtimes (Claude Code, Codex, Gemini, …) running in containers; it does not host its own tool-use loop. Agents run in one of two hosting modes — _ephemeral_ (a container per turn) or _persistent_ (a long-lived container).
-- **Prompt assembly** — four-layer composition: platform, unit context, thread context, agent instructions.
+Install `eng/install-hooks.sh` once per clone. The pre-push hook runs the change-scoped static gate in `eng/ci/ci-local.sh`; hosted CI runs the full build, lint, and test gates. During iteration use focused checks, but API/contract changes still require the solution-wide test gate because integration failures often surface first. A subagent's unqualified “tests pass” means the complete repository test gate passed.
 
-## Build, test, lint
+Generated-file and migration rules live in [generated files](docs/agent-rules/generated-files.md) and [database migrations](docs/agent-rules/database-migrations.md). Claude loads their matching shims lazily from `.claude/rules/`.
 
-Use the `build`, `test`, and `lint` commands/skills. Each points at the canonical CI invocation.
+## Source-available extension boundary
 
-Pitfall: bare `dotnet test SpringVoyage.slnx` exits 0 without running tests. Always go through the `test` command/skill.
+The public repository is the core platform. A private host extends it through dependency injection with tenancy, identity, billing, and premium behavior. Preserve that one-way boundary:
 
-Shared generated-file and migration guardrails live in [`docs/agent-rules/generated-files.md`](docs/agent-rules/generated-files.md) and [`docs/agent-rules/database-migrations.md`](docs/agent-rules/database-migrations.md). Claude auto-loads matching `.claude/rules/` shims; Codex reads the shared docs through these project instructions.
+- Resolve tenancy through `ITenantContext.CurrentTenantId`; never hardcode `"default"`. Fresh OSS rows use `OssTenantIds.Default`.
+- Tenant-owned persisted entities implement `ITenantScopedEntity`.
+- Services use DI, not static state or ad-hoc singletons. Register replaceable defaults with `TryAdd*`.
+- Extension contracts are public, interface-first, and composable; do not seal intended extension points.
+- `Cvoya.Spring.Core` remains dependency-free.
+- Do not reference private-repository issues, branches, or PRs.
+- New features must remain replaceable or decoratable by a downstream host without forks or patches.
 
-### Pre-push checks
+Agent runtimes implement `IAgentRuntime`; connectors implement `IConnectorType`. Each ships in its own `Cvoya.Spring.AgentRuntimes.<Name>` or `Cvoya.Spring.Connector.<Name>` project and registers through one DI extension.
 
-Install the git hook once per clone with `eng/install-hooks.sh`; its pre-push gate runs the fast static checks (`eng/ci/ci-local.sh` — build, format, lint, typecheck for the areas you touched) automatically before every push. CI runs the full `build`, `lint`, and `test` gates on the PR and again in the merge queue, reusing one .NET restore/build for formatting and tests. The resulting `main` push does not repeat ordinary CI, so a regression is caught before merge without a third identical run.
+Operational mutations for runtime, connector, credential, tenant-seed, and skill-bundle administration are CLI-only. The portal may expose read-only visibility. User-facing features still follow the UI/CLI parity rule in [CONVENTIONS.md](CONVENTIONS.md).
 
-Two things the fast hook does **not** run, so keep them in mind: `test` is solution-wide for a reason — integration tests (`tests/integration/Cvoya.Spring.Integration.Tests`) routinely break first when API contracts change, and a scoped `dotnet test path/to/single.csproj` is no substitute. A dispatched sub-agent's claim of "tests pass" means the full solution-wide `test` gate (e.g. `eng/ci/ci-local.sh --full`), not a project-scoped subset.
+## Documentation
 
-## Documentation updates
+Architecture pages are living as-built truth. A design-affecting change updates the relevant page and diagrams in the same PR. Feature changes update the relevant guide; new concepts get a `docs/concepts/` entry; decisions get an ADR. Web changes keep `src/Cvoya.Spring.Web/DESIGN.md` synchronized. The concise cross-agent checklist is [documentation](docs/agent-rules/documentation.md).
 
-[`docs/architecture/`](docs/architecture/README.md) is a **living description of the system** — keep it current the same way ADRs are authored. Any design-affecting change updates the relevant `docs/architecture/` page **and its diagrams** in the same PR; a behavioural or architectural change that leaves those docs stale is not complete. The architecture docs are the single source of truth — these instruction files, and the `docs/concepts/` and `docs/guide/` docs, point at them rather than restating them.
+Release plans live under `docs/plan/<release>/README.md`; use the active release plan as the plan of record.
 
-When shipping a feature, also update the relevant guide doc, and add a `docs/concepts/` entry for any new concept. The "why" behind a design decision belongs in an ADR under [`docs/decisions/`](docs/decisions/README.md).
+## Workflow
 
-For changes under `src/Cvoya.Spring.Web/`, keep `src/Cvoya.Spring.Web/DESIGN.md` in sync — it is the portal's visual contract.
+- Work only in a dedicated task worktree under `~/dev/worktrees/spring-voyage/<task>`, based on current `origin/main`; never edit the main checkout.
+- One PR owns one coherent outcome. Combine issues only when instructed or when they are inseparable within one owned surface and verification boundary.
+- Rebase on current `origin/main` before pushing and before merging.
+- Append to shared registries such as `StateKeys`, DI registrations, and enums; avoid reorder churn.
+- File and natively wire genuinely separate follow-ups before the PR lands.
 
-The documentation quick reference lives in [`docs/agent-rules/documentation.md`](docs/agent-rules/documentation.md) and applies to both Claude and Codex.
+All GitHub writes for this repository, including commits, use `gh-app`. PRs are review-ready by default, use squash merge, and repeat the closing keyword for every completed issue.
 
-## Source-available platform and extensibility
-
-This repository is the **public, source-available core** of Spring Voyage. A private repository extends it via git submodule and dependency injection — adding multi-tenancy, OAuth/SSO, billing, and premium features.
-
-- **Don't bypass `ITenantContext`.** Resolve the current tenant through `ITenantContext.CurrentTenantId` (a `Guid`). Never hardcode the literal string `"default"` and never assume only one tenant exists. The OSS deployment's fresh-install rows are owned by `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default` (a deterministic v5 UUID; see [`docs/architecture/data-and-identity.md`](docs/architecture/data-and-identity.md)) — reference the constant from code, never the literal string. New persisted entities that should be tenant-scoped must implement `ITenantScopedEntity` so the cloud host can enforce isolation through its scoped overrides.
-- **Don't make services static or use singletons outside DI.** Everything must go through the container so the private repo can control lifetime and scoping.
-- **Don't create internal types that the private repo would need to access.** If a type is part of the extension contract, make it `public`. Use `internal` only for true implementation details.
-- **Don't reference private repo issues, PRs, or branches.** It is fine to acknowledge that a Spring Voyage hosted service exists, but do not link to or create dependencies on `cvoya-com/spring` issues or PRs from this repo. The dependency direction is one-way: the private repo may reference this repo's work, not the reverse.
-- **Every design decision must account for extensibility.** The private repo extends, overrides, or composes OSS behaviour cleanly — without forking, patching, or working around limitations. Treat this repo as a framework that consumers use.
-
-### Extension model
-
-- **Tenant-aware overrides.** The OSS core models tenancy through `ITenantContext` and ships a single-tenant default. The cloud host swaps in a scoped implementation. OSS code must not assume a single tenant or hardcode the default tenant id.
-- **DI overrides.** The cloud host replaces OSS service registrations with tenant-aware implementations using `TryAdd*`-friendly registration on the OSS side.
-- **Plugin contracts.** Implement `IAgentRuntime` (LLM backend + execution tool + credential schema + model catalogue) or `IConnectorType` (external-system binding) and register via DI; the host picks new implementations up without core changes.
-- **Cloud API host.** Layers middleware (auth, tenant context) on top of the OSS API host.
-
-### Design principles for extensibility
-
-1. **Interface-first.** Define interfaces in `Cvoya.Spring.Core`, implement in `Cvoya.Spring.Dapr`. Alternative implementations slot in via DI.
-2. **`TryAdd*` for DI registrations.** Downstream consumers register their own implementations before calling `AddCvoyaSpring*()`, and OSS registrations don't overwrite them.
-3. **Don't seal extensible types.** Services, handlers, strategies, middleware are not `sealed` unless leaf-only.
-4. **Composition over inheritance.** Inject collaborators; extend by wrapping or decorating.
-5. **No hardcoded single-tenant assumptions.** Use injected services for anything the cloud might scope per tenant.
-6. **Virtual hooks on base classes.** Make template methods on `*Base` classes `virtual`.
-7. **`Cvoya.Spring.Core` stays dependency-free.** Domain abstractions only — zero NuGet packages.
-8. **Extension-point checklist** for new features:
-   - Can the cloud swap this implementation via DI? → interface.
-   - Can it extend behaviour? → decorator/wrapper or virtual methods.
-   - Does it assume a single deployment context? → parameterise via DI.
-
-### Plugins (agent runtimes and connectors)
-
-Agent runtimes and connectors are first-class plugins. Each ships as its own `Cvoya.Spring.AgentRuntimes.<Name>` or `Cvoya.Spring.Connector.<Name>` project, references only what its contract demands, and registers via a single `AddCvoyaSpring<Kind><Name>()` DI extension. Host-side code references the abstraction only — the registry, install surface, and bootstrap pick up new plugins automatically. Per-project READMEs document each runtime/connector's contract; see also `CONVENTIONS.md` § "Agent Runtimes and Connectors Are Plugins".
-
-## Operator surfaces — relaxation of UI/CLI parity
-
-Operational surfaces (agent-runtime config, connector config, credential health, tenant seeds, skill-bundle bindings) are **CLI-only by design**. The portal MAY expose **read-only** views for visibility, but every mutation goes through the `spring` CLI.
-
-User-facing features remain strictly parity-bound — see [`CONVENTIONS.md`](CONVENTIONS.md) § "UI / CLI Feature Parity".
-
-## Agents, Sub-agents, concurrent agents
-
-Multiple coding agents work on this codebase simultaneously.
-
-Rules:
-
-- Every PR must be developed in a dedicated worktree — create one before starting any code work. Never work directly in the main checkout. Other agent processes may be active concurrently and so making changes to the main worktree might result into conflicts or agents tripping on each other's work.
-- Small, focused PRs — one issue per PR unless instructed to combine issues into one.
-- Rebase onto `main` before merging.
-- When adding to shared files (`StateKeys`, DI registrations, enums) — append to the end.
-- File follow-up issues before the PR lands and reference concrete numbers in the PR body. Prose-only "we'll file it later" routinely drops follow-ups on the floor.
-
-## Repository Configuration
-
-- `.claude/settings.local.json` is gitignored and is the correct place for user-specific tooling (MCP servers, design tools, personal preferences). Do not add user-specific tool configuration to committed repo files (`settings.json`, agent definitions, or CLAUDE.md). Repo-level config should reflect project requirements shared by all contributors, not individual workflow preferences.
+User-specific tools and MCP servers belong in `.claude/settings.local.json` or user configuration, not committed project settings, agent definitions, or this file.

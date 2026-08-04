@@ -1,0 +1,17 @@
+# Build artifacts and caches
+node_modules/
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+__pycache__/
+
+# Agent-managed worktrees live under ~/dev/worktrees, never in the repository.
+.claude/worktrees/
+.codex/worktrees/
+.worktrees/
+
+# Secrets and local state
+eng/config/spring.env
+.env
+.env.*
