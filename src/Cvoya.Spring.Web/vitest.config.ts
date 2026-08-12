@@ -15,6 +15,7 @@ import { resolve } from "path";
 const require = createRequire(import.meta.url);
 const reactDir = resolve(require.resolve("react"), "..");
 const reactDomDir = resolve(require.resolve("react-dom"), "..");
+const nextDir = resolve(require.resolve("next/package.json"), "..");
 
 export default defineConfig({
   // Setting the automatic JSX runtime matches the tsconfig JSX setting so
@@ -51,6 +52,9 @@ export default defineConfig({
       // duplicate-instance hook error. See #1384.
       react: reactDir,
       "react-dom": reactDomDir,
+      // Next's App Router context has the same single-instance requirement:
+      // connector files outside this workspace must resolve the same module.
+      next: nextDir,
     },
   },
   test: {
