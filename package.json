@@ -17,6 +17,8 @@
     "lint:fix": "npm run --workspace=spring-voyage-dashboard generate-api && eslint src/Cvoya.Spring.Web src/Cvoya.Spring.Connector.*/web --max-warnings 0 --report-unused-disable-directives --cache --cache-location .eslintcache --fix"
   },
   "overrides": {
+    "js-yaml": "^4.3.1",
+    "nanoid": "^3.3.17",
     "postcss": "^8.5.10"
   }
 }
