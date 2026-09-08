@@ -10,6 +10,13 @@ This document series describes the core concepts and abstractions that make up t
 
 **A unit IS an agent that has children.** Composition is recursive: a unit appears to its parent as a single agent. The platform **delivers messages; it does not orchestrate.** When a message reaches a unit, the unit's own runtime runs and decides whether to answer directly, hand work to a member, or fan it out — that decision lives in the runtime, not in platform configuration.
 
+> **Planned (v1.0-beta, [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)):**
+> units are being replaced by **teams** — recursive organizational, policy, and
+> resource scopes that are *not* participants. Agents and humans remain the
+> only message senders and receivers; addressing a team happens through
+> selectors resolved to concrete members at send time. "The platform delivers
+> messages; it does not orchestrate" is unchanged.
+
 Routing work is only one slice of what happens inside a unit. Spring Voyage's bet is that **collaboration** between humans and agents is the bigger, still-under-explored category:
 
 - **Humans participate as first-class members**, not just as observers. Multiple humans can be Owners, Operators, or Viewers on the same unit, ask the unit clarifying questions, answer questions the unit asks back, and intervene mid-work.

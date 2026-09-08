@@ -1,6 +1,8 @@
 # 0062 — Explicit `Human → TenantUser` FK; `Message.From` is always routable
 
-- **Status:** Accepted (2026-05-26). v0.1 work — implementation tracked in a follow-up issue. **Amended 2026-06-02** with § 11 (Hat ↔ unit reachability gate, #2972).
+> **Rebased by [ADR-0070](0070-subjects-agents-humans-teams.md) (2026-07-31).** The **Hat model is retired** — one canonical routable Human per TenantUser; the multi-Hat machinery (§§ 1–2, 5–6, and the § 11 reachability gate) is superseded, with contextual display moving onto membership / role-assignment relations. Two rules **carry forward** unchanged: § 3's "`Message.From` is always a routable scheme" and § 10's "`tenant-user://` is non-routable audit context".
+
+- **Status:** Accepted (2026-05-26). v0.1 work — implementation tracked in a follow-up issue. **Amended 2026-06-02** with § 11 (Hat ↔ unit reachability gate, #2972). **Rebased by [0070](0070-subjects-agents-humans-teams.md)** — see the banner above.
 - **Date:** 2026-05-26
 - **Amends:** [ADR-0047 § 7](0047-platform-user-human-split.md) — brings the explicit `Human → TenantUser` mapping forward from the umbrella's v0.2 deferral (OUT2) to v0.1, and pins the data shape (FK on `humans`, NOT NULL with a default-resolver service). The mapping is no longer a derived projection.
 - **Adjacent ADRs:** [0036 — Single-identity model](0036-single-identity-model.md) (actor-kind enumeration; `tenant-user` remains an actor kind but is removed from the routable-recipient set for domain messages), [0046 — Unified members grammar](0046-unified-members-grammar.md) (the `Human` member kind whose per-unit display name moves to the membership row).

@@ -1,9 +1,11 @@
 # 0017 — A Unit IS an Agent (composite pattern)
 
+> **Archived — superseded.** Kept for reasoning history; it does not describe the current system. The current decision is [ADR-0070 — Subjects: Agent, Human, Team](../0070-subjects-agents-humans-teams.md): the unit concept is eliminated — teams are recursive organizational, policy, and resource scopes, **not** participants (no mailbox, no runtime, no lifecycle), and only agent and human identities are routable. See the [archive index](README.md).
+
 - **Status:** Accepted — `UnitActor` and `AgentActor` both implement the same addressable / message-receiving contract; a unit is indistinguishable from an agent at the messaging boundary.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/IAddressable.cs`, `src/Cvoya.Spring.Core/Messaging/IMessageReceiver.cs`, `src/Cvoya.Spring.Dapr/Actors/AgentActor.cs`, `src/Cvoya.Spring.Dapr/Actors/UnitActor.cs`.
-- **Related docs:** [`docs/architecture/units.md`](../architecture/units-and-agents.md), [`docs/concepts/units.md`](../concepts/units.md).
+- **Related docs:** [`docs/architecture/units.md`](../../architecture/units-and-agents.md), [`docs/concepts/units.md`](../../concepts/units.md).
 
 ## Context
 
@@ -17,9 +19,9 @@ V1 had a flat team structure: one team of expert agents and a leader, with bespo
 **Adopt the composite pattern. `UnitActor` and `AgentActor` implement the same messaging interfaces and live behind the same address space. Routing, boundary checks, permissions, activity emission, and the orchestration spectrum all run uniformly regardless of whether the target is a leaf agent or a nested unit.**
 
 - **Recursive composition is free.** A unit containing a unit containing a unit needs no special handling: the outer unit's `OrchestrationStrategy` picks one of its members; that member, if it's a unit, runs its own strategy; and so on. There is no "depth N" code path anywhere in the dispatcher.
-- **Boundary opacity becomes a property of the composite.** A unit chooses how much of its internal structure to project (see [ADR 0008](0008-unit-boundary-decorator.md)). To external senders the unit looks exactly like an agent — same address shape, same message verbs.
-- **Routing is single-hop.** A path address resolves to a flat actor id ([ADR 0023](0023-flat-actor-ids.md)); there is no multi-hop forwarding through each level of the hierarchy.
-- **Skill projection follows the same rule.** Capabilities are enumerated through the expertise directory, not the agent roster ([ADR 0014](0014-skill-invoker-seam.md)); a unit's projected capabilities are first-class skills indistinguishable from a leaf agent's.
+- **Boundary opacity becomes a property of the composite.** A unit chooses how much of its internal structure to project (see [ADR 0008](../0008-unit-boundary-decorator.md)). To external senders the unit looks exactly like an agent — same address shape, same message verbs.
+- **Routing is single-hop.** A path address resolves to a flat actor id ([ADR 0023](../0023-flat-actor-ids.md)); there is no multi-hop forwarding through each level of the hierarchy.
+- **Skill projection follows the same rule.** Capabilities are enumerated through the expertise directory, not the agent roster ([ADR 0014](../0014-skill-invoker-seam.md)); a unit's projected capabilities are first-class skills indistinguishable from a leaf agent's.
 
 ## Alternatives considered
 
@@ -30,5 +32,5 @@ V1 had a flat team structure: one team of expert agents and a leader, with bespo
 
 - **One mental model for senders.** "I send a message to an address" — whether the address resolves to a clone, a leaf agent, a unit, or a unit-of-units, the surface is identical.
 - **The dispatcher is small.** No type-branching on `target.IsUnit`. The differentiation lives in the actor's `OnMessageAsync` implementation.
-- **Boundary projection composes.** The boundary decorator ([ADR 0008](0008-unit-boundary-decorator.md)) wraps an aggregator whose recursion is itself uniform across leaf agents and nested units.
-- **Skill catalog projects uniformly.** `expertise/{slug}` ([ADR 0014](0014-skill-invoker-seam.md)) names point at unit-projected capabilities and leaf-agent capabilities through the same naming scheme; the caller never has to know which.
+- **Boundary projection composes.** The boundary decorator ([ADR 0008](../0008-unit-boundary-decorator.md)) wraps an aggregator whose recursion is itself uniform across leaf agents and nested units.
+- **Skill catalog projects uniformly.** `expertise/{slug}` ([ADR 0014](../0014-skill-invoker-seam.md)) names point at unit-projected capabilities and leaf-agent capabilities through the same naming scheme; the caller never has to know which.

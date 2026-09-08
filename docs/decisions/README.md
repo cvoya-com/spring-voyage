@@ -33,7 +33,6 @@ For open design questions not yet decided, see
 | [0014](0014-skill-invoker-seam.md) | `ISkillInvoker` seam between skill callers and routing | Accepted |
 | [0015](0015-dapr-as-infrastructure-runtime.md) | Dapr as the infrastructure runtime | Accepted |
 | [0016](0016-net-for-infrastructure-layer.md) | .NET for the platform infrastructure layer | Accepted |
-| [0017](0017-unit-is-an-agent-composite.md) | A unit IS an agent (composite pattern) | Accepted |
 | [0019](0019-workflow-as-container.md) | Domain workflows run as containers | Accepted |
 | [0020](0020-tiered-cognition-for-initiative.md) | Two-tier cognition model for initiative | Accepted |
 | [0021](0021-spring-voyage-is-not-an-agent-runtime.md) | Spring Voyage is not an agent runtime | Accepted |
@@ -51,18 +50,18 @@ For open design questions not yet decided, see
 | [0033](0033-two-portal-architecture.md) | Two-portal architecture (Management + Engagement) | Accepted |
 | [0034](0034-oss-dogfooding-unit.md) | Spring Voyage OSS dogfooding unit | Accepted |
 | [0035](0035-package-as-bundling-unit.md) | Package as the unit of bundling, install, export | Accepted — decision 12 (export-verbatim) superseded by [0067](0067-runtime-config-single-source-of-truth.md) |
-| [0036](0036-single-identity-model.md) | Single-identity model: Guid identity, `display_name` presentation-only | Accepted |
+| [0036](0036-single-identity-model.md) | Single-identity model: Guid identity, `display_name` presentation-only | Accepted — amended by [0047](0047-platform-user-human-split.md) (`tenant-user` kind) and [0070](0070-subjects-agents-humans-teams.md) (`unit` kind eliminated; teams are subjects, not actors) |
 | [0037](0037-package-schema-decomposition.md) | Package schema decomposition (kind-discriminated YAMLs) | Accepted |
 | [0038](0038-agent-runtime-and-model-provider-split.md) | AgentRuntime and ModelProvider as separate identities | Accepted — amended by [0059](0059-prompt-assembly-pipeline.md) (§`systemPromptInjection` removed) |
-| [0040](0040-actor-state-ownership-matrix.md) | Actor state ownership matrix | Accepted — skill-grant tables reshaped by the Tools wave; amended by [0067](0067-runtime-config-single-source-of-truth.md) (single home for `model`/`hosting`) |
+| [0040](0040-actor-state-ownership-matrix.md) | Actor state ownership matrix | Accepted — skill-grant tables reshaped by the Tools wave; amended by [0067](0067-runtime-config-single-source-of-truth.md) (single home for `model`/`hosting`) and [0070](0070-subjects-agents-humans-teams.md) (unit-scoped rows re-homed by the Unit → Team reshape) |
 | [0041](0041-actor-runtime-contract.md) | Actor-runtime contract (per-thread resume + concurrent threads) | Accepted |
 | [0042](0042-local-operator-installer.md) | Local-host operator installer (`install.sh`) | Accepted |
 | [0043](0043-recursive-package-format.md) | Recursive package format: every artefact is a folder | Accepted — amended by [0046](0046-unified-members-grammar.md) |
-| [0044](0044-team-role-vs-platform-role.md) | Team role vs. platform role; package-declared human members | Accepted — §§2/3/5 superseded by [0046](0046-unified-members-grammar.md) |
+| [0044](0044-team-role-vs-platform-role.md) | Team role vs. platform role; package-declared human members | Accepted — §§2/3/5 superseded by [0046](0046-unified-members-grammar.md); §1's role orthogonality restated by [0070](0070-subjects-agents-humans-teams.md) |
 | [0045](0045-connector-domain-agnostic-platform.md) | Connectors facilitate flow; they do not replicate upstream config | Accepted |
-| [0046](0046-unified-members-grammar.md) | Unified `members:` grammar; humans as a member kind; `HumanTemplate` | Accepted |
+| [0046](0046-unified-members-grammar.md) | Unified `members:` grammar; humans as a member kind; `HumanTemplate` | Accepted — rebased by [0070](0070-subjects-agents-humans-teams.md) (`- team:` replaces `- unit:`; human declarations become slots) |
 | [0047](0047-platform-user-human-split.md) | TenantUser / human split; connector identity on the tenant user | Accepted |
-| [0053](0053-units-are-agents-and-one-way-delivery.md) | **Re-baseline** — units are agents; the platform delivers one-way messages | Accepted |
+| [0053](0053-units-are-agents-and-one-way-delivery.md) | **Re-baseline** — units are agents; the platform delivers one-way messages | Accepted — unit-as-agent portions (§§1–2, 6) superseded by [0070](0070-subjects-agents-humans-teams.md); one-way delivery stands pending the interactions record ([#3249](https://github.com/cvoya-com/spring-voyage/issues/3249)) |
 | [0054](0054-one-mcp-server-one-execution-host.md) | **Re-baseline** — one platform MCP server, one execution host | Accepted |
 | [0055](0055-pull-based-agent-bootstrap.md) | Pull-based agent bootstrap and workspace delivery | Proposed |
 | [0056](0056-tool-only-side-effects.md) | Tool calls are the only side-effect channel; stdout is reasoning trace | Approved |
@@ -70,6 +69,7 @@ For open design questions not yet decided, see
 | [0058](0058-spring-voyage-container-contract.md) | Spring Voyage container contract — platform-managed artefacts inside agent instances | Proposed |
 | [0059](0059-prompt-assembly-pipeline.md) | Prompt-assembly pipeline — layered providers, launcher-owned delivery, and `system_prompt_mode` | Proposed — supersedes [0038](0038-agent-runtime-and-model-provider-split.md) §`systemPromptInjection` |
 | [0060](0060-participant-set-agent-api-and-structured-envelope.md) | Participant-set agent API and structured inbound envelope | Accepted — extends [0030](0030-thread-model.md) to the agent surface; extended by [0064](0064-conversation-participants-and-continuation.md) |
+| [0062](0062-tenant-user-human-explicit-binding.md) | Explicit `Human → TenantUser` FK; `Message.From` is always routable | Accepted — Hat model superseded by [0070](0070-subjects-agents-humans-teams.md); the routable-`From` rule and non-routable `tenant-user://` audit context carry forward |
 | [0063](0063-message-payload-renderer-registry.md) | Message-payload renderer registry — canonical text extraction across consumers | Accepted |
 | [0064](0064-conversation-participants-and-continuation.md) | Conversation participants and platform-addressed continuation | Accepted — extends [0060](0060-participant-set-agent-api-and-structured-envelope.md) |
 | [0065](0065-agent-memory-architecture.md) | Agent memory architecture: typed memory, durable store canonical, coordination via threads + instruction-level authority | Accepted — builds on [0030](0030-thread-model.md); push-vs-pull ([#1301](https://github.com/cvoya-com/spring-voyage/issues/1301)) left open |
@@ -77,6 +77,7 @@ For open design questions not yet decided, see
 | [0067](0067-runtime-config-single-source-of-truth.md) | Runtime/DB config is the single source of truth; package retention is install provenance only; export reconstructs | Accepted — supersedes [0035](0035-package-as-bundling-unit.md) dec 12, amends [0040](0040-actor-state-ownership-matrix.md) ([#3090](https://github.com/cvoya-com/spring-voyage/issues/3090)) |
 | [0068](0068-mechanism-agnostic-tls-mode.md) | Mechanism-agnostic TLS: `TLS_MODE` decouples HTTPS from internet-facing (internal CA / custom cert / ACME) | Accepted — `TLS_MODE` on both Caddyfiles + installer probe ([#2928](https://github.com/cvoya-com/spring-voyage/issues/2928)) + multi-host nested-default fix |
 | [0069](0069-podman-version-floor.md) | Podman version floor is 5.4 (project-wide); rootless-bridge `host.containers.internal` fixed by-floor | Accepted — supersedes [0042](0042-local-operator-installer.md)'s "Podman 4+" stance; resolves [#2927](https://github.com/cvoya-com/spring-voyage/issues/2927) by-floor (drops the deferred `--add-host` workaround) |
+| [0070](0070-subjects-agents-humans-teams.md) | Subjects: Agent, Human, Team — identity / membership / role assignment as three relations; teams are non-participant scopes; selectors; `Unit` eliminated | Accepted — supersedes archived [0017](archive/0017-unit-is-an-agent-composite.md) and [0053](0053-units-are-agents-and-one-way-delivery.md)'s unit-as-agent portions; rebases [0062](0062-tenant-user-human-explicit-binding.md) / [0046](0046-unified-members-grammar.md) / [0044](0044-team-role-vs-platform-role.md); companions [#3249](https://github.com/cvoya-com/spring-voyage/issues/3249) / [#3250](https://github.com/cvoya-com/spring-voyage/issues/3250) / [#3251](https://github.com/cvoya-com/spring-voyage/issues/3251) |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 
