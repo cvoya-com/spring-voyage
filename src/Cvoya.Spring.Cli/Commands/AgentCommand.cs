@@ -42,13 +42,12 @@ public static class AgentCommand
         new("id", a => GuidDisplay.Format(a.Agent?.Id)),
         new("name", a => a.Agent?.Name),
         new("enabled", a => a.Agent?.Enabled?.ToString().ToLowerInvariant()),
-        // Persistent-agent enrichment (#396). Kiota models the nullable
-        // deployment slot as a composed oneOf; the typed branch is the
-        // PersistentAgentDeploymentResponse member. When the agent is not
+        // Persistent-agent enrichment (#396). The deployment slot is a
+        // nullable PersistentAgentDeploymentResponse; when the agent is not
         // deployed the slot is null and these columns stay blank.
-        new("running", a => a.Deployment?.PersistentAgentDeploymentResponse?.Running?.ToString().ToLowerInvariant()),
-        new("health", a => a.Deployment?.PersistentAgentDeploymentResponse?.HealthStatus),
-        new("container", a => a.Deployment?.PersistentAgentDeploymentResponse?.ContainerId),
+        new("running", a => a.Deployment?.Running?.ToString().ToLowerInvariant()),
+        new("health", a => a.Deployment?.HealthStatus),
+        new("container", a => a.Deployment?.ContainerId),
     };
 
     private static readonly OutputFormatter.Column<PersistentAgentDeploymentResponse>[] DeploymentColumns =

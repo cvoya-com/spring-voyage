@@ -15,9 +15,9 @@
     <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
 
     <!-- CLI -->
-    <PackageVersion Include="System.CommandLine" Version="2.0.10" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.11" />
     <PackageVersion Include="YamlDotNet" Version="18.0.0" />
-    <PackageVersion Include="Microsoft.Kiota.Bundle" Version="2.0.0" />
+    <PackageVersion Include="Microsoft.Kiota.Bundle" Version="2.1.1" />
 
     <!-- ASP.NET Core / Hosting -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
@@ -53,10 +53,10 @@
     <PackageVersion Include="System.Reactive" Version="7.0.0" />
 
     <!-- Testing (Microsoft Testing Platform + xUnit v3) -->
-    <PackageVersion Include="xunit.v3.mtp-v2" Version="3.2.2" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.9.0" />
+    <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.0" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
-    <PackageVersion Include="NSubstitute" Version="6.0.0" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
 
     <!-- OpenAPI contract tests (#1248). JsonSchema.Net validates JSON
          instances against OpenAPI 3.1 component schemas, which are real
@@ -68,6 +68,6 @@
          CodedInputStream parses the OTLP envelopes our ingest controller
          receives when a runtime emits `application/x-protobuf`; the
          JSON-side wire mapper handles `application/json`. -->
-    <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
+    <PackageVersion Include="Google.Protobuf" Version="3.36.1" />
   </ItemGroup>
 </Project>

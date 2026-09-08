@@ -130,10 +130,7 @@ public class DirectoryCommandTests
             },
             Owner = new AddressDto { Scheme = "unit", Path = "origin" },
             OwnerDisplayName = "Origin",
-            AggregatingUnit = new DirectorySearchHitResponse.DirectorySearchHitResponse_aggregatingUnit
-            {
-                AddressDto = new AddressDto { Scheme = "unit", Path = "root" },
-            },
+            AggregatingUnit = new AddressDto { Scheme = "unit", Path = "root" },
             TypedContract = false,
             Score = 20.0,
             MatchReason = "aggregated coverage",
