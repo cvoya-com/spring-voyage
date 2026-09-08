@@ -232,13 +232,13 @@ public static class ThreadCommand
             if (string.Equals(evt.EventType, "MessageArrived", StringComparison.Ordinal)
                 && !string.IsNullOrEmpty(evt.Body))
             {
-                var fromRef = evt.From?.ParticipantRef;
+                var fromRef = evt.From;
                 var sender = fromRef?.DisplayName ?? fromRef?.Address ?? sourceLabel;
                 // Post-#1635 To is itself a ParticipantRef (server-resolved
                 // display name + canonical address), so prefer the display
                 // name and fall back to the source label only when the
                 // event has no recipient at all.
-                var toRef = evt.To?.ParticipantRef;
+                var toRef = evt.To;
                 var recipient = toRef?.DisplayName ?? toRef?.Address ?? sourceLabel;
                 Console.WriteLine($"[{ts}] {sender} -> {recipient}");
                 Console.WriteLine(evt.Body);

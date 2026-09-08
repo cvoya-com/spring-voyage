@@ -162,7 +162,7 @@ public static class DirectoryCommand
             var rows = hits
                 .Select(h =>
                 {
-                    var aggregating = h.AggregatingUnit?.AddressDto;
+                    var aggregating = h.AggregatingUnit;
                     return new SearchRow(
                         Slug: h.Slug ?? string.Empty,
                         Name: h.Domain?.Name ?? string.Empty,
@@ -274,7 +274,7 @@ public static class DirectoryCommand
             var rows = hits
                 .Select(h =>
                 {
-                    var aggregating = h.AggregatingUnit?.AddressDto;
+                    var aggregating = h.AggregatingUnit;
                     return new ListRow(
                         Slug: h.Slug ?? string.Empty,
                         Name: h.Domain?.Name ?? string.Empty,
@@ -390,7 +390,7 @@ public static class DirectoryCommand
         var owner = hit.Owner is null
             ? string.Empty
             : $"{hit.Owner.Scheme}://{hit.Owner.Path}";
-        var aggregating = hit.AggregatingUnit?.AddressDto;
+        var aggregating = hit.AggregatingUnit;
         var aggregatingText = aggregating is null
             ? "(direct)"
             : $"{aggregating.Scheme}://{aggregating.Path}";

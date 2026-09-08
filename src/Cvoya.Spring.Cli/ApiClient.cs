@@ -285,12 +285,7 @@ public class SpringApiClient
             Role = role,
             Specialty = specialty,
             Enabled = enabled,
-            ExecutionMode = executionMode is null
-                ? null
-                : new UpdateUnitRequest.UpdateUnitRequest_executionMode
-                {
-                    AgentExecutionMode = executionMode,
-                },
+            ExecutionMode = executionMode,
         };
 
         return await _client.Api.V1.Tenant.Units[unitId].PatchAsync(body, cancellationToken: ct);
@@ -365,14 +360,10 @@ public class SpringApiClient
         int? replicas = null,
         CancellationToken ct = default)
     {
-        var typed = new DeployPersistentAgentRequest
+        var body = new DeployPersistentAgentRequest
         {
             Image = string.IsNullOrWhiteSpace(image) ? null : image,
             Replicas = replicas,
-        };
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Agents.Item.Deploy.DeployRequestBuilder.DeployPostRequestBody
-        {
-            DeployPersistentAgentRequest = typed,
         };
         var result = await _client.Api.V1.Tenant.Agents[agentId].Deploy.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -1044,12 +1035,7 @@ public class SpringApiClient
             Model = model,
             Specialty = specialty,
             Enabled = enabled,
-            ExecutionMode = executionMode is null
-                ? null
-                : new UpsertMembershipRequest.UpsertMembershipRequest_executionMode
-                {
-                    AgentExecutionMode = executionMode,
-                },
+            ExecutionMode = executionMode,
         };
         var result = await _client.Api.V1.Tenant.Units[unitId].Memberships[agentId]
             .PutAsync(request, cancellationToken: ct);
@@ -1408,13 +1394,10 @@ public class SpringApiClient
         string? description = null,
         CancellationToken ct = default)
     {
-        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Humans.Item.WithHumanItemRequestBuilder.WithHumanPatchRequestBody
+        var body = new UpdateHumanRequest
         {
-            UpdateHumanRequest = new UpdateHumanRequest
-            {
-                DisplayName = displayName,
-                Description = description,
-            },
+            DisplayName = displayName,
+            Description = description,
         };
         return await _client.Api.V1.Tenant.Humans[humanId].PatchAsync(body, cancellationToken: ct);
     }
@@ -1450,14 +1433,11 @@ public class SpringApiClient
         Guid? tenantUserId,
         CancellationToken ct = default)
     {
-        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Humans.HumansRequestBuilder.HumansPostRequestBody
+        var body = new CreateHumanRequest
         {
-            CreateHumanRequest = new CreateHumanRequest
-            {
-                DisplayName = displayName,
-                Description = string.IsNullOrWhiteSpace(description) ? null : description,
-                TenantUserId = tenantUserId,
-            },
+            DisplayName = displayName,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description,
+            TenantUserId = tenantUserId,
         };
         var result = await _client.Api.V1.Tenant.Humans.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -1600,12 +1580,9 @@ public class SpringApiClient
         Guid humanId,
         CancellationToken ct = default)
     {
-        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Users.Item.PrimaryHuman.PrimaryHumanRequestBuilder.PrimaryHumanPatchRequestBody
+        var body = new SetPrimaryHumanRequest
         {
-            SetPrimaryHumanRequest = new SetPrimaryHumanRequest
-            {
-                HumanId = humanId,
-            },
+            HumanId = humanId,
         };
         var result = await _client.Api.V1.Tenant.Users[tenantUserId].PrimaryHuman
             .PatchAsync(body, cancellationToken: ct);
@@ -1709,13 +1686,9 @@ public class SpringApiClient
         string? clientState,
         CancellationToken ct = default)
     {
-        var inner = new SlackAuthorizeRequest
+        var body = new SlackAuthorizeRequest
         {
             ClientState = clientState,
-        };
-        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Connectors.Slack.Oauth.Authorize.AuthorizeRequestBuilder.AuthorizePostRequestBody
-        {
-            SlackAuthorizeRequest = inner,
         };
         var result = await _client.Api.V1.Tenant.Connectors.Slack.Oauth.Authorize
             .PostAsync(body, cancellationToken: ct);
@@ -2038,12 +2011,7 @@ public class SpringApiClient
     {
         var request = new SendMessageRequest
         {
-            // `to` is a nullable ref in the contract, so Kiota models it as a
-            // composed-type wrapper; the CLI sends a single recipient, wrapped.
-            To = new SendMessageRequest.SendMessageRequest_to
-            {
-                AddressDto = new AddressDto { Scheme = toScheme, Path = toPath },
-            },
+            To = new AddressDto { Scheme = toScheme, Path = toPath },
             Type = "Domain",
             ThreadId = threadId,
             Payload = new UntypedString(text),
@@ -2337,21 +2305,14 @@ public class SpringApiClient
         };
         if (!string.IsNullOrWhiteSpace(ownerScheme) && !string.IsNullOrWhiteSpace(ownerPath))
         {
-            req.Owner = new DirectorySearchRequest.DirectorySearchRequest_owner
+            req.Owner = new AddressDto
             {
-                AddressDto = new AddressDto
-                {
-                    Scheme = ownerScheme,
-                    Path = ownerPath,
-                },
+                Scheme = ownerScheme,
+                Path = ownerPath,
             };
         }
 
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.DirectoryNamespace.Search.SearchRequestBuilder.SearchPostRequestBody
-        {
-            DirectorySearchRequest = req,
-        };
-        var result = await _client.Api.V1.Tenant.Directory.Search.PostAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Directory.Search.PostAsync(req, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty search response.");
     }
 
@@ -3277,7 +3238,7 @@ public class SpringApiClient
     public async Task<InstalledConnectorResponse> BindConnectorAsync(
         string slugOrId, CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Connectors.Item.Bind.BindRequestBuilder.BindPostRequestBody();
+        var body = new ConnectorInstallRequest();
         var result = await _client.Api.V1.Tenant.Connectors[slugOrId].Bind.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty bind response for connector '{slugOrId}'.");
@@ -3537,14 +3498,11 @@ public class SpringApiClient
         string? baseUrl,
         CancellationToken ct = default)
     {
-        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.ModelProviders.Installs.Item.Install.InstallRequestBuilder.InstallPostRequestBody
+        var body = new ModelProviderInstallRequest
         {
-            ModelProviderInstallRequest = new ModelProviderInstallRequest
-            {
-                Models = models is null ? null : new List<string>(models),
-                DefaultModel = string.IsNullOrWhiteSpace(defaultModel) ? null : defaultModel,
-                BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? null : baseUrl,
-            },
+            Models = models is null ? null : new List<string>(models),
+            DefaultModel = string.IsNullOrWhiteSpace(defaultModel) ? null : defaultModel,
+            BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? null : baseUrl,
         };
         var result = await _client.Api.V1.Tenant.ModelProviders.Installs[id].Install.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -3615,13 +3573,10 @@ public class SpringApiClient
         string? secretName,
         CancellationToken ct = default)
     {
-        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.ModelProviders.Installs.Item.ValidateCredential.ValidateCredentialRequestBuilder.ValidateCredentialPostRequestBody
+        var body = new ModelProviderValidateCredentialRequest
         {
-            ModelProviderValidateCredentialRequest = new ModelProviderValidateCredentialRequest
-            {
-                Credential = string.IsNullOrWhiteSpace(credential) ? null : credential,
-                SecretName = string.IsNullOrWhiteSpace(secretName) ? null : secretName,
-            },
+            Credential = string.IsNullOrWhiteSpace(credential) ? null : credential,
+            SecretName = string.IsNullOrWhiteSpace(secretName) ? null : secretName,
         };
         var result = await _client.Api.V1.Tenant.ModelProviders.Installs[id].ValidateCredential.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -3638,12 +3593,9 @@ public class SpringApiClient
         string? credential,
         CancellationToken ct = default)
     {
-        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.ModelProviders.Installs.Item.RefreshModels.RefreshModelsRequestBuilder.RefreshModelsPostRequestBody
+        var body = new ModelProviderRefreshModelsRequest
         {
-            ModelProviderRefreshModelsRequest = new ModelProviderRefreshModelsRequest
-            {
-                Credential = string.IsNullOrWhiteSpace(credential) ? null : credential,
-            },
+            Credential = string.IsNullOrWhiteSpace(credential) ? null : credential,
         };
         var result = await _client.Api.V1.Tenant.ModelProviders.Installs[id].RefreshModels.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(

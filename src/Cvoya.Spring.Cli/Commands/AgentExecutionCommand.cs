@@ -96,8 +96,8 @@ public static class AgentExecutionCommand
                     agent = agentId,
                     image = shape.Image,
                     runtime = shape.Runtime,
-                    model_provider = shape.Model?.AiModelDto?.Provider,
-                    model = shape.Model?.AiModelDto?.Id,
+                    model_provider = shape.Model?.Provider,
+                    model = shape.Model?.Id,
                     hosting = shape.Hosting,
                     declared_system_prompt_mode = declaredSpm,
                     system_prompt_mode = effectiveSpm,
@@ -108,8 +108,8 @@ public static class AgentExecutionCommand
             Console.WriteLine($"Agent:    {idOrName}");
             Console.WriteLine($"  image:                          {shape.Image ?? "(inherited / unset)"}");
             Console.WriteLine($"  runtime:                        {shape.Runtime ?? "(inherited / unset)"}");
-            Console.WriteLine($"  model_provider:                 {shape.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
-            Console.WriteLine($"  model:                          {shape.Model?.AiModelDto?.Id ?? "(inherited / unset)"}");
+            Console.WriteLine($"  model_provider:                 {shape.Model?.Provider ?? "(inherited / unset)"}");
+            Console.WriteLine($"  model:                          {shape.Model?.Id ?? "(inherited / unset)"}");
             Console.WriteLine($"  hosting:                        {shape.Hosting ?? "(default: ephemeral)"}");
             Console.WriteLine($"  system_prompt_mode (declared):  {declaredSpm ?? "(inherited / unset)"}");
             Console.WriteLine($"  system_prompt_mode (effective): {effectiveSpm ?? "(default: append)"}");
@@ -214,10 +214,7 @@ public static class AgentExecutionCommand
 
             // ADR-0038: structured execution.model = {provider, id} on the wire.
             var modelDto = (!string.IsNullOrWhiteSpace(modelProvider) && !string.IsNullOrWhiteSpace(model))
-                ? new AgentExecutionResponse.AgentExecutionResponse_model
-                {
-                    AiModelDto = new AiModelDto { Provider = modelProvider, Id = model },
-                }
+                ? new AiModelDto { Provider = modelProvider, Id = model }
                 : null;
 
             // #2693: send the execution-block fields through PUT only when
@@ -263,8 +260,8 @@ public static class AgentExecutionCommand
                     agent = agentId,
                     image = stored.Image,
                     runtime = stored.Runtime,
-                    model_provider = stored.Model?.AiModelDto?.Provider,
-                    model = stored.Model?.AiModelDto?.Id,
+                    model_provider = stored.Model?.Provider,
+                    model = stored.Model?.Id,
                     hosting = stored.Hosting,
                     declared_system_prompt_mode = declaredSpm,
                     system_prompt_mode = effectiveSpm,
@@ -275,8 +272,8 @@ public static class AgentExecutionCommand
                 Console.WriteLine($"Agent '{idOrName}' execution updated.");
                 Console.WriteLine($"  image:                          {stored.Image ?? "(inherited / unset)"}");
                 Console.WriteLine($"  runtime:                        {stored.Runtime ?? "(inherited / unset)"}");
-                Console.WriteLine($"  model_provider:                 {stored.Model?.AiModelDto?.Provider ?? "(inherited / unset)"}");
-                Console.WriteLine($"  model:                          {stored.Model?.AiModelDto?.Id ?? "(inherited / unset)"}");
+                Console.WriteLine($"  model_provider:                 {stored.Model?.Provider ?? "(inherited / unset)"}");
+                Console.WriteLine($"  model:                          {stored.Model?.Id ?? "(inherited / unset)"}");
                 Console.WriteLine($"  hosting:                        {stored.Hosting ?? "(default: ephemeral)"}");
                 Console.WriteLine($"  system_prompt_mode (declared):  {declaredSpm ?? "(inherited / unset)"}");
                 Console.WriteLine($"  system_prompt_mode (effective): {effectiveSpm ?? "(default: append)"}");

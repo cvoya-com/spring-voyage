@@ -38,7 +38,7 @@ public static class UnitCommand
         new("model", m => m.Model),
         new("specialty", m => m.Specialty),
         new("enabled", m => m.Enabled?.ToString().ToLowerInvariant()),
-        new("executionMode", m => m.ExecutionMode?.AgentExecutionMode?.ToString()),
+        new("executionMode", m => m.ExecutionMode?.ToString()),
     };
 
     /// <summary>
@@ -844,9 +844,8 @@ public static class UnitCommand
 
     /// <summary>
     /// Produces a <see cref="ArtefactValidationSnapshot"/> from a Kiota
-    /// <see cref="UnitResponse"/>, unwrapping the composed-type wrapper
-    /// around <c>lastValidationError</c>. Safe against null / partial
-    /// payloads — missing fields surface as null on the snapshot.
+    /// <see cref="UnitResponse"/>. Safe against null / partial payloads —
+    /// missing fields surface as null on the snapshot.
     /// </summary>
     internal static ArtefactValidationSnapshot ToSnapshot(UnitResponse? response)
     {
@@ -862,7 +861,7 @@ public static class UnitCommand
         }
 
         var status = response.Status?.ToString() ?? "Unknown";
-        var inner = response.LastValidationError?.ArtefactValidationError;
+        var inner = response.LastValidationError;
         IReadOnlyDictionary<string, string>? details = null;
         if (inner?.Details?.AdditionalData is { Count: > 0 } data)
         {
@@ -1494,7 +1493,7 @@ public static class UnitCommand
                         Model: m.Model,
                         Specialty: m.Specialty,
                         Enabled: m.Enabled,
-                        ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString(),
+                        ExecutionMode: m.ExecutionMode?.ToString(),
                         CreatedAt: m.CreatedAt,
                         UpdatedAt: m.UpdatedAt,
                         IsPrimary: m.IsPrimary,
@@ -1552,7 +1551,7 @@ public static class UnitCommand
                     Model: m.Model,
                     Specialty: m.Specialty,
                     Enabled: m.Enabled,
-                    ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString(),
+                    ExecutionMode: m.ExecutionMode?.ToString(),
                     CreatedAt: m.CreatedAt,
                     UpdatedAt: m.UpdatedAt,
                     IsPrimary: m.IsPrimary,

@@ -41,14 +41,10 @@ public class ThreadCommandTests
             EventType = eventType,
             Severity = severity,
             Summary = summary,
-            From = from is not null
-                ? new ThreadEventResponse.ThreadEventResponse_from { ParticipantRef = from }
-                : null,
+            From = from,
             // #1635: To is now a ParticipantRef-shaped slot (server resolves
             // recipient display name) rather than a bare string.
-            To = to is not null
-                ? new ThreadEventResponse.ThreadEventResponse_to { ParticipantRef = to }
-                : null,
+            To = to,
             Body = body,
         };
     }

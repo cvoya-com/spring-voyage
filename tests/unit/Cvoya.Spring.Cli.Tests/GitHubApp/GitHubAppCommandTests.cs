@@ -207,7 +207,7 @@ public class GitHubAppCommandTests
                 envFilePathOverride: envPath,
                 dryRun: false,
                 callbackTimeout: TimeSpan.FromSeconds(20),
-                cancellationToken: CancellationToken.None,
+                cancellationToken: TestContext.Current.CancellationToken,
                 httpClientOverride: http,
                 githubApiBaseUrlOverride: mockGitHub.BaseUrl,
                 stdout: stdout,
@@ -363,7 +363,7 @@ public class GitHubAppCommandTests
                 envFilePathOverride: Path.Combine(Path.GetTempPath(), $"never-used-{Guid.NewGuid()}.env"),
                 dryRun: false,
                 callbackTimeout: TimeSpan.FromMilliseconds(500),
-                cancellationToken: CancellationToken.None,
+                cancellationToken: TestContext.Current.CancellationToken,
                 httpClientOverride: http,
                 githubApiBaseUrlOverride: mockGitHub.BaseUrl,
                 browserOpenerOverride: NoOpOpener);

@@ -134,8 +134,8 @@ public static class UnitExecutionCommand
                     unit = unitId,
                     image = defaults.Image,
                     runtime = defaults.Runtime,
-                    model_provider = defaults.Model?.AiModelDto?.Provider,
-                    model = defaults.Model?.AiModelDto?.Id,
+                    model_provider = defaults.Model?.Provider,
+                    model = defaults.Model?.Id,
                     declared_system_prompt_mode = declaredSpm,
                     system_prompt_mode = effectiveSpm,
                 }));
@@ -145,8 +145,8 @@ public static class UnitExecutionCommand
             Console.WriteLine($"Unit:     {idOrName}");
             Console.WriteLine($"  image:                          {defaults.Image ?? "(unset)"}");
             Console.WriteLine($"  runtime:                        {defaults.Runtime ?? "(unset)"}");
-            Console.WriteLine($"  model_provider:                 {defaults.Model?.AiModelDto?.Provider ?? "(unset)"}");
-            Console.WriteLine($"  model:                          {defaults.Model?.AiModelDto?.Id ?? "(unset)"}");
+            Console.WriteLine($"  model_provider:                 {defaults.Model?.Provider ?? "(unset)"}");
+            Console.WriteLine($"  model:                          {defaults.Model?.Id ?? "(unset)"}");
             Console.WriteLine($"  system_prompt_mode (declared):  {declaredSpm ?? "(unset)"}");
             Console.WriteLine($"  system_prompt_mode (effective): {effectiveSpm}");
         });
@@ -241,10 +241,7 @@ public static class UnitExecutionCommand
 
             // ADR-0038: structured execution.model = {provider, id}.
             var modelDto = (!string.IsNullOrWhiteSpace(modelProvider) && !string.IsNullOrWhiteSpace(model))
-                ? new UnitExecutionResponse.UnitExecutionResponse_model
-                {
-                    AiModelDto = new AiModelDto { Provider = modelProvider, Id = model },
-                }
+                ? new AiModelDto { Provider = modelProvider, Id = model }
                 : null;
 
             // #2693: send the supplied systemPromptMode through the same
@@ -268,8 +265,8 @@ public static class UnitExecutionCommand
                     unit = unitId,
                     image = stored.Image,
                     runtime = stored.Runtime,
-                    model_provider = stored.Model?.AiModelDto?.Provider,
-                    model = stored.Model?.AiModelDto?.Id,
+                    model_provider = stored.Model?.Provider,
+                    model = stored.Model?.Id,
                     declared_system_prompt_mode = declaredSpm,
                     system_prompt_mode = effectiveSpm,
                 }));
@@ -279,8 +276,8 @@ public static class UnitExecutionCommand
                 Console.WriteLine($"Unit '{idOrName}' execution updated.");
                 Console.WriteLine($"  image:                          {stored.Image ?? "(unset)"}");
                 Console.WriteLine($"  runtime:                        {stored.Runtime ?? "(unset)"}");
-                Console.WriteLine($"  model_provider:                 {stored.Model?.AiModelDto?.Provider ?? "(unset)"}");
-                Console.WriteLine($"  model:                          {stored.Model?.AiModelDto?.Id ?? "(unset)"}");
+                Console.WriteLine($"  model_provider:                 {stored.Model?.Provider ?? "(unset)"}");
+                Console.WriteLine($"  model:                          {stored.Model?.Id ?? "(unset)"}");
                 Console.WriteLine($"  system_prompt_mode (declared):  {declaredSpm ?? "(unset)"}");
                 Console.WriteLine($"  system_prompt_mode (effective): {effectiveSpm}");
             }
@@ -457,8 +454,8 @@ public static class UnitExecutionCommand
                 unit = unitId,
                 image = updated.Image,
                 runtime = updated.Runtime,
-                model_provider = updated.Model?.AiModelDto?.Provider,
-                model = updated.Model?.AiModelDto?.Id,
+                model_provider = updated.Model?.Provider,
+                model = updated.Model?.Id,
                 system_prompt_mode = updated.SystemPromptMode,
             }));
         }
