@@ -13,7 +13,7 @@
 - **Status:** Accepted — every actor has a flat globally-unique Dapr actor id; addresses (canonical wire form `scheme:<32-hex-no-dash>` per [ADR 0036](0036-single-identity-model.md); originally specified as path addresses `agent://team/sub/agent` — see Amendment above) resolve to that id in one directory lookup; messages do not forward hop-by-hop through each unit in the path.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/IAddressable.cs`, `src/Cvoya.Spring.Dapr/Routing/`, `src/Cvoya.Spring.Dapr/Actors/UnitActor.cs` (member resolution).
-- **Related docs:** [`docs/architecture/messaging.md`](../architecture/messaging.md), [`docs/architecture/units.md`](../architecture/units-and-agents.md), [ADR 0017](0017-unit-is-an-agent-composite.md), [ADR 0008](0008-unit-boundary-decorator.md), [ADR 0013](0013-hierarchy-aware-permission-resolution.md).
+- **Related docs:** [`docs/architecture/messaging.md`](../architecture/messaging.md), [`docs/architecture/units.md`](../architecture/units-and-agents.md), [ADR 0017](archive/0017-unit-is-an-agent-composite.md) (archived), [ADR 0008](0008-unit-boundary-decorator.md), [ADR 0013](0013-hierarchy-aware-permission-resolution.md).
 
 ## Context
 
@@ -22,7 +22,7 @@ Unit nesting can be deep — engineering → backend → payments → individual
 1. **Multi-hop forwarding.** A message to `agent://eng/backend/payments/alice` is delivered to the `eng` unit, which forwards to `backend`, which forwards to `payments`, which finally hands it to `alice`. Each hop runs that unit's `OrchestrationStrategy`.
 2. **Flat resolution + single-hop dispatch.** Path is resolved to a flat actor id in one directory lookup; the message goes directly to that actor; permission and boundary checks run once at resolution time.
 
-The composite-pattern decision ([ADR 0017](0017-unit-is-an-agent-composite.md)) made flat resolution viable — every actor has the same shape, so a single id is enough. The remaining question was governance: where do boundary opacity, permission walks, and directory consistency hook in?
+The composite-pattern decision ([ADR 0017](archive/0017-unit-is-an-agent-composite.md)) made flat resolution viable — every actor has the same shape, so a single id is enough. The remaining question was governance: where do boundary opacity, permission walks, and directory consistency hook in?
 
 ## Decision
 

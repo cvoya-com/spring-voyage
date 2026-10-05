@@ -43,7 +43,7 @@ Source: `src/Cvoya.Spring.Dapr/Prompts/UnitContextBuilder.cs`. Renders the `## U
 
 #### Role-specific-instructions layer
 
-Source: `src/Cvoya.Spring.Dapr/Prompts/AgentInstructionsBuilder.cs`. Renders the `## Role-specific instructions` section from the agent's own `instructions:` block in its YAML / template, plus any package-level skill bundles equipped directly on the agent subject. The section header was renamed from `## Agent Instructions` to `## Role-specific instructions` in [#2664](https://github.com/cvoya-com/spring-voyage/pull/2664) so the name describes what the content *is* rather than who authored it — unit-shaped subjects (a unit-as-agent under [ADR-0017](0017-unit-is-an-agent-composite.md)) see the same header as agent-shaped subjects.
+Source: `src/Cvoya.Spring.Dapr/Prompts/AgentInstructionsBuilder.cs`. Renders the `## Role-specific instructions` section from the agent's own `instructions:` block in its YAML / template, plus any package-level skill bundles equipped directly on the agent subject. The section header was renamed from `## Agent Instructions` to `## Role-specific instructions` in [#2664](https://github.com/cvoya-com/spring-voyage/pull/2664) so the name describes what the content *is* rather than who authored it — unit-shaped subjects (a unit-as-agent under [ADR-0017](archive/0017-unit-is-an-agent-composite.md), archived — superseded by [0070](0070-subjects-agents-humans-teams.md)) see the same header as agent-shaped subjects.
 
 ### 3. Injection sources outside the layered providers
 

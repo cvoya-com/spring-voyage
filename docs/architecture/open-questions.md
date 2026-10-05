@@ -17,6 +17,7 @@ deferred but the architecture accommodates is listed under Future work.
 | **Activity-event stream separation** | Whether to split high-frequency execution events (`TokenDelta`, `ToolCall`) from lower-frequency activity events into two streams. See [Observability](observability.md) |
 | **Context-assembly strategy** | Whether prompt Layer 3 stays minimal (agent pulls context on demand) or is pre-assembled richer. See [Units & agents](units-and-agents.md) |
 | **Thread ↔ runtime-session association** | A runtime with native session resume keeps its own session id, unlinked from the platform `ThreadId`. Whether to link them is undecided |
+| **"Any/one" role-delivery mode** | A role selector delivers to **all** fulfillers ([ADR-0070](../decisions/0070-subjects-agents-humans-teams.md) §9.2). Whether a single-fulfiller mode (claim / on-call / load-balancing semantics) is needed, and its claim protocol, is undecided — it would land in the interactions record's frame ([#3249](https://github.com/cvoya-com/spring-voyage/issues/3249)) |
 
 ## Future work
 
@@ -37,6 +38,19 @@ the implementations do not.
   federating expertise directories across trust boundaries.
 - **Advanced self-organisation** — units that restructure themselves (splitting,
   merging, adjusting policies) based on workload.
+- **Persona-level addressing** — distinct routable aliases per package slot,
+  beyond the presentation context carried on membership / role-assignment
+  relations. Evidence-gated per [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md):
+  the trigger is repeated operator demand to be *addressed as* distinct
+  personas (e.g. external-channel identity separation) that relation-level
+  display context cannot express; any design must keep one accountable
+  identity in the audit trail.
+- **Multi-parent (DAG) teams** — team topology is a tree with a single parent
+  ([ADR-0070](../decisions/0070-subjects-agents-humans-teams.md) §4). The
+  revisit trigger is a concrete matrix-organization deployment where two teams
+  with mirrored membership demonstrably fail — e.g. policy or resource scoping
+  that must be single-homed across two parents. Membership stays M:N either
+  way; only the team-parent relation would widen.
 
 Multi-tenancy, OAuth/SSO, platform operations, and billing are not "future work"
 in this sense — they are commercial extensions developed in the private

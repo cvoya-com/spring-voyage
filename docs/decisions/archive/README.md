@@ -24,6 +24,7 @@ the [architecture docs](../../architecture/README.md).
 | 0007 | Label-routing match semantics | [0053](../0053-units-are-agents-and-one-way-delivery.md) — orchestration strategies removed |
 | 0009 | GitHub label roundtrip via activity event | [0053](../0053-units-are-agents-and-one-way-delivery.md) — the roundtrip rewires to the connector binding |
 | 0010 | Manifest orchestration-strategy selector | [0053](../0053-units-are-agents-and-one-way-delivery.md) — strategy selection removed; the runtime decides |
+| 0017 | A unit IS an agent (composite pattern) | [0070](../0070-subjects-agents-humans-teams.md) — the unit concept is eliminated; teams are non-participant organizational scopes |
 | 0018 | Three-channel partitioned mailbox | [0030](../0030-thread-model.md) — participant-set thread model |
 | 0039 | Units are agents (with orchestration tools) | [0053](../0053-units-are-agents-and-one-way-delivery.md) — re-baseline (drops the dead `delegate_to` / `fanout_to` surface) |
 | 0048 | Event-vs-request message semantics | [0053](../0053-units-are-agents-and-one-way-delivery.md) — re-baseline |

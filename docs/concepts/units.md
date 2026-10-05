@@ -1,5 +1,14 @@
 # Units
 
+> **Planned (v1.0-beta, [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)):**
+> the unit concept is being eliminated. The decided direction replaces it with
+> **Team** — a recursive organizational, policy, and resource scope that is not
+> a participant: no mailbox, no runtime, no lifecycle, never an author or
+> recipient of a message. A grouping that needs a voice gets an explicit member
+> agent instead of "the unit's own runtime". In the package grammar `- team:`
+> replaces `- unit:`. This page describes the implemented system and will be
+> replaced as the implementation lands.
+
 ## What a unit is
 
 A **unit** is an [agent](agents.md) that owns children. Composition is

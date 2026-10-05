@@ -7,6 +7,17 @@ The entity model. An **agent** is an autonomous AI-powered participant. A
 the membership graph, the lifecycle, expertise and the directory, unit policies,
 initiative, and cloning.
 
+> **Planned (v1.0-beta, [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)):**
+> the unit concept described on this page is being eliminated. The decided
+> direction models three subjects — **Agent**, **Human**, and **Team** — where a
+> team is a recursive organizational, policy, and resource scope that is *not* a
+> participant (no mailbox, no runtime, no lifecycle). Identity, team membership,
+> and role assignment become three separately managed relations; execution
+> config is intrinsic to the agent (membership-driven inheritance is deleted);
+> and messaging at a group happens through send-time-resolved selectors. This
+> page describes the implemented system and will be rewritten as the
+> implementation lands.
+
 ---
 
 ## A unit is an agent
@@ -18,7 +29,8 @@ sub-units. When a message reaches a unit's mailbox, the unit's **own runtime
 runs** — the same launcher path that runs a leaf agent — and decides whether to
 answer directly or hand work to a member by sending it a message. There is no
 separate orchestration layer ([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md),
-[ADR-0017](../decisions/0017-unit-is-an-agent-composite.md)).
+[ADR-0017](../decisions/archive/0017-unit-is-an-agent-composite.md) — archived,
+superseded by [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)).
 
 `AgentActor` and `UnitActor` are kind-specific actor groupings — a unit has
 membership, expertise aggregation, a boundary, a validation workflow — but

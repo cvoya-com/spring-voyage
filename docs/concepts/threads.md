@@ -1,5 +1,14 @@
 # Threads, Engagements, and Collaborations
 
+> **Planned (v1.0-beta, [ADR-0070](../decisions/0070-subjects-agents-humans-teams.md)):**
+> participants are always agent and human identities — **teams (the successor
+> to units) are never participants** and never appear as an author or recipient
+> in history; addressing a team resolves to concrete members at send time. The
+> broader reshape of this record model (interactions and the interaction
+> ledger) is designed in the companion records tracked by
+> [#3249](https://github.com/cvoya-com/spring-voyage/issues/3249) and
+> [#3250](https://github.com/cvoya-com/spring-voyage/issues/3250).
+
 A **thread** is the canonical record of what happens between a specific set of participants. The participant set IS the identity: there is exactly one thread per unique participant set. Add or remove a participant, and you have a different thread.
 
 This doc explains three related but distinct terms — **Thread** (system), **Engagement** (product), **Collaboration** (active workspace) — and when to use each.
