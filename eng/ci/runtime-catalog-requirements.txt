@@ -108,7 +108,7 @@ charset-normalizer==3.4.9 \
 check-jsonschema==0.37.4 \
     --hash=sha256:e4d1647992674d6b1ed2ca46eee6697760d17a5cc0c167ba09c5b503b883d041 \
     --hash=sha256:f933521f14cbeaaf113270751185b01379f453ac9ce9fb01d6190ce1352ccaa6
-    # via -r eng/ci/runtime-catalog-requirements.in
+    # via -r runtime-catalog-requirements.in
 click==8.4.2 \
     --hash=sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6 \
     --hash=sha256:e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76
@@ -380,7 +380,7 @@ ruamel-yaml==0.19.1 \
     --hash=sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93 \
     --hash=sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993
     # via check-jsonschema
-urllib3==2.7.0 \
-    --hash=sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c \
-    --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897
+urllib3==2.8.0 \
+    --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
+    --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
     # via requests
