@@ -39,7 +39,7 @@ You want to extend Spring Voyage — write your own agent runtime, connector, or
 
 ## Reference
 
-- [`product/`](product/vision.md) — the product vision ([`vision.md`](product/vision.md)) and UX vision ([`ux-vision.md`](product/ux-vision.md)): who Spring Voyage serves, the bet it makes, and the end-user experience it is building toward.
+- [`product/`](product/vision.md) — the product vision ([`vision.md`](product/vision.md)) and UX vision ([`ux-vision.md`](product/ux-vision.md)): who Spring Voyage serves, the bet it makes, and the end-user experience it is building toward; [`explorations/`](product/explorations/README.md) holds the UX exploration concepts derived from them.
 - [`guide/intro/`](guide/intro/overview.md) — short SV introduction; useful before any of the paths above.
 - [`cli-reference.md`](cli-reference.md) — concise verb reference for the admin CLI surfaces.
 - [`glossary.md`](glossary.md) — definitions of all key terms.
