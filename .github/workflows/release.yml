@@ -1345,7 +1345,7 @@ jobs:
             NuGet.config
 
       - name: Download bundle-tree workflow artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: bundle-tree
           path: stage/bundle
@@ -1598,7 +1598,7 @@ jobs:
 
     steps:
       - name: Download sidecar binaries from same-workflow artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: sidecar-artifacts
           pattern: "sidecar-binary-*"
@@ -1671,7 +1671,7 @@ jobs:
 
     steps:
       - name: Download all release-asset workflow artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           # Pattern matches host-archive artifacts (`spring-voyage-<v>-<rid>.<ext>`),
           # the installer artifact (`installers/`), and the sidecar artifact
